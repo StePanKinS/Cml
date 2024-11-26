@@ -8,6 +8,8 @@ s8, s16, s32, s64
 f32, f64
 ## Boolean
 bool
+## Pointers
+void*, s32*, bool*, ...
 
 # Literals
 ## Integer
@@ -18,6 +20,80 @@ bool
 true, false
 
 # Strucures
-struct `name` {
-    `type` `field name`,
+struct `name` {  
+    `type` `field name`,  
+    `type` `field2 name`,  
+    ...
 }
+
+# Functions
+`return type` `function name`(`type` `argument name`, `type` `agrument2 name`, ...) \{ `code` \}
+
+# Imports
+import `file name`;
+
+# Function pointers
+?
+
+# Operators
+## Binary operators
++, -, *, /, %, &, &&, |, ||, ^, ~, <<, >>, ==, !=, <=, >=, <, >, =, +=, -=, *=, /=, %=, <<=, >>=, &=, |=, ^=
+## Unary operators
+-, !, &, *, ++, --
+
+# Operation priority
+1. Left to right
+    - func()
+    - . (member access)
+1. Right to lefft
+    - ++ (prefix)
+    - \-- (prefix)
+    - (`type`) (cast)
+    - \- (unary)
+    - !
+    - ~
+    - &
+    - \* (dereference)
+1. Left to right
+    - \*
+    - /
+    - %
+1. Left to right
+    - +
+    - \- 
+1. Left to right
+    - <<
+    - \>>
+1. Left to right
+    - <
+    - <=
+    - \>=
+    - \>
+1. Left to right
+    - ==
+    - !=
+1. Left to right
+    - & (bitwise and)
+1. Left to right
+    - ^
+1. Left to right
+    - | (bitwise or)
+1. Left to right
+    - && 
+1. Left to right
+    - ||
+1. Right to left
+    - =
+    - +=
+    - -=
+    - *=
+    - /=
+    - %=
+    - <<=
+    - \>>=
+    - &=
+    - |=,
+    - ^=
+1. Left to right
+    - ++ (postfix)
+    - \-- (postfix)
