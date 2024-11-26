@@ -1,4 +1,5 @@
-namespace Cml;
+namespace Cml.Lexing;
+
 internal static class Lexer
 {
     internal static List<Token> Process(string source) 
