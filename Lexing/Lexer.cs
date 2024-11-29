@@ -47,7 +47,6 @@ internal static class Lexer
 
             if (c == '"')
             {
-                Console.WriteLine(i);
                 endAcum();
                 readString(ref i, c);
                 continue;
@@ -112,6 +111,7 @@ internal static class Lexer
 
             void processDigit()
             {
+                // TODO: read digit
                 tokens.Add(new IntLiteralToken(0, loc));
             }
         }

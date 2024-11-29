@@ -12,4 +12,7 @@ public class Location(string file, int sLine, int eLine, int sCol, int eCol) {
 #pragma warning disable CS8625
     public static readonly Location Nowhere = new(null, -1, -1, -1, -1);
 #pragma warning restore CS8625
+
+    public override string ToString()
+        => $"{File}:{StartLine}:{StartColumn}";
 }
