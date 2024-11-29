@@ -64,6 +64,7 @@ internal static class Lexer
 
             if (char.IsSymbol(c) || char.IsPunctuation(c))
             {
+                endAcum();
                 readSymbol(ref i, c);
                 continue;
             }
@@ -80,7 +81,13 @@ internal static class Lexer
         {
             Location loc = new(path, startCol, startLine, line, col);
 
-            if (Enum.TryParse<Keywords>(acum, out var result))
+            if (acum.Length == 0)
+            {
+                updateStart();
+                return;
+            }
+
+            if (Enum.TryParse<Keywords>(acum, true, out var result))
             {
                 tokens.Add(new KeywordToken(result, loc));
             }
@@ -92,6 +99,9 @@ internal static class Lexer
             {
                 tokens.Add(new NameToken(acum, loc));
             }
+
+            acum = "";
+            updateStart();
 
             void processDigit()
             {
@@ -299,6 +309,24 @@ internal static class Lexer
                     break;
                 case ';':
                     addSymbolToken(Symbols.Semicolon);
+                    break;
+                case '{':
+                    addSymbolToken(Symbols.CurlyOpen);
+                    break;
+                case '}':
+                    addSymbolToken(Symbols.CurlyClose);
+                    break;
+                case '(':
+                    addSymbolToken(Symbols.CircleOpen);
+                    break;
+                case ')':
+                    addSymbolToken(Symbols.CircleClose);
+                    break;
+                case '[':
+                    addSymbolToken(Symbols.SquareOpen);
+                    break;
+                case ']':
+                    addSymbolToken(Symbols.SquareClose);
                     break;
                 case '.':
                     addSymbolToken(Symbols.Dot);
