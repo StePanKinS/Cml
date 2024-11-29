@@ -45,6 +45,14 @@ internal static class Lexer
                 continue;
             }
 
+            if (c == '"')
+            {
+                Console.WriteLine(i);
+                endAcum();
+                readString(ref i, c);
+                continue;
+            }
+
             if (char.IsWhiteSpace(c))
             {
                 endAcum();
@@ -68,7 +76,6 @@ internal static class Lexer
                 readSymbol(ref i, c);
                 continue;
             }
-
 
             col++;
         }
@@ -113,6 +120,24 @@ internal static class Lexer
         {
             startCol = col;
             startLine = line;
+        }
+
+        void readString(ref int pos, char c) 
+        {
+            char cc = default;
+            string value = "";
+            while (true) {
+                cc = source[++pos];
+                if (cc == '"') break;
+                value += cc;
+            }
+            value = value
+                .Replace("\\n", "\n")
+                .Replace("\\t", "\n")
+                .Replace("\\r", "\n")
+                .Replace("\\a", "\a")
+                .Replace("\\\"", "\"");
+            tokens.Add(new StringLiteralToken(value, new(path, startLine, startCol, line, col + value.Length + 2)));
         }
 
         void readSymbol(ref int pos, char c)
