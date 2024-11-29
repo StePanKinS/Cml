@@ -300,6 +300,9 @@ internal static class Lexer
                 case ';':
                     addSymbolToken(Symbols.Semicolon);
                     break;
+                case '.':
+                    addSymbolToken(Symbols.Dot);
+                    break;
                 default:
                     addSymbolToken(Symbols.Unknown);
                     break;
