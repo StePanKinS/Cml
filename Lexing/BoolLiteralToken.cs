@@ -1,3 +1,3 @@
 namespace Cml.Lexing;
 
-public class BoolLiteralToken(bool value, Location loc) : LiteralToken<bool>(value, loc);
+public class BoolLiteralToken(bool value, Location location) : LiteralToken<bool>(value, location);

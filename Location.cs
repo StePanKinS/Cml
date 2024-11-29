@@ -10,6 +10,6 @@ public class Location(string file, int sLine, int eLine, int sCol, int eCol) {
     public int EndColumn = eCol;
 
 #pragma warning disable CS8625
-    public static readonly Location NoWhere = new(null, -1, -1, -1, -1);
+    public static readonly Location Nowhere = new(null, -1, -1, -1, -1);
 #pragma warning restore CS8625
 }

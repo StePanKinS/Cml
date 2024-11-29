@@ -37,13 +37,14 @@ import `file name`;
 
 # Operators
 ## Binary operators
-+, -, *, /, %, &, &&, |, ||, ^, ~, <<, >>, ==, !=, <=, >=, <, >, =, +=, -=, *=, /=, %=, <<=, >>=, &=, |=, ^=
++, -, *, /, %, &, &&, |, ||, ^, ~, <<, >>, ==, !=, \<=, >=, <, >, =, +=, -=, *=, /=, %=, <<=, >>=, &=, |=, ^=
 ## Unary operators
 -, !, &, *, ++, --
 
 # Operation priority
 1. Left to right
     - func()
+    - [] (value at index)
     - . (member access)
 1. Right to lefft
     - ++ (prefix)
@@ -59,7 +60,7 @@ import `file name`;
     - /
     - %
 1. Left to right
-    - +
+    - \+
     - \- 
 1. Left to right
     - <<

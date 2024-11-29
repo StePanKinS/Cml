@@ -1,0 +1,10 @@
+import math;
+import io;
+import os;
+
+
+void main() {
+	io.print("Hello world!!!");
+
+	sys.setExitCode(1);
+}
