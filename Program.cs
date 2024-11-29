@@ -8,7 +8,7 @@ if (args.Length > 0)
 } 
 else
 {
-    path = @"C:\Users\stepa\Code\cml\Test.cml";
+    path = @"test.cml";
 }
 
 List<Token> tokens = Lexer.Process(path);
