@@ -4,4 +4,9 @@ public enum Keywords
 {
     Struct,
     Return,
+    Import,
+    If,
+    Else,
+    While,
+    For,
 }

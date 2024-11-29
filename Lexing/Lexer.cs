@@ -87,7 +87,7 @@ internal static class Lexer
                 return;
             }
 
-            if (Enum.TryParse<Keywords>(acum, out var result))
+            if (Enum.TryParse<Keywords>(acum, true, out var result))
             {
                 tokens.Add(new KeywordToken(result, loc));
             }
