@@ -1,4 +1,5 @@
 ﻿using Cml.Lexing;
+using Cml.Parsing;
 
 string path;
 
@@ -16,4 +17,15 @@ List<Token> tokens = Lexer.Process(path);
 foreach (Token token in tokens)
 {
     Console.WriteLine(token);
+}
+
+ParsedFile parsedFile = Parser.Process(tokens);
+
+foreach (var import in parsedFile.Imports)
+{
+    Console.WriteLine(import.File);
+}
+foreach (var definition in parsedFile.Definitions)
+{
+    Console.WriteLine(definition.Name);
 }

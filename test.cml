@@ -2,9 +2,32 @@ import math;
 import io;
 import os;
 
+struct Location
+{
+	char* file;
+	s32 startLine;
+	s32 endLine;
+	s32 startColumn;
+	s32 endColumn
+}
 
-void main() {
+void main()
+{
 	io.print("Hello world!!!\n\n\n\n");
+
+	Location nowhere = {
+		file = (char*)0,
+		startLine = -1,
+		endLine = -1,
+		startColumn = -1,
+		endColumn = -1,
+	};
+
+	printLocation(&nowhere);
 
 	sys.setExitCode(1);
 }
+
+void printLocation(Location* loc)
+	io.printLine(loc.file + ":" + loc.startLine.toString() + ":" + loc.startColumn.toString()
+		+ "-" + loc.endLine.toString() + ":" + loc.endColumn.tostring());

@@ -93,13 +93,13 @@ internal static class Lexer
                 return;
             }
 
-            if (Enum.TryParse<Keywords>(acum, true, out var result))
-            {
-                tokens.Add(new KeywordToken(result, loc));
-            }
-            else if (char.IsDigit(acum[0])) 
+            if (char.IsDigit(acum[0]))
             {
                 processDigit();
+            }
+            else if (Enum.TryParse<Keywords>(acum, true, out var result))
+            {
+                tokens.Add(new KeywordToken(result, loc));
             }
             else
             {
@@ -321,7 +321,7 @@ internal static class Lexer
                         addSymbolToken(Symbols.IsEquals);
                         break;
                     }
-                    addSymbolToken(Symbols.Tilda);
+                    addSymbolToken(Symbols.Equals);
                     break;
                 case '!':
                     if (i + 1 < source.Length && source[i + 1] == '=')
@@ -355,6 +355,9 @@ internal static class Lexer
                     break;
                 case '.':
                     addSymbolToken(Symbols.Dot);
+                    break;
+                case ',':
+                    addSymbolToken(Symbols.Comma);
                     break;
                 default:
                     addSymbolToken(Symbols.Unknown);
