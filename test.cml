@@ -13,7 +13,7 @@ struct Location
 
 void main()
 {
-	io.print("Hello world!!!\n\n\n\n");
+	print("Hello world!!!\n\n\n\n");
 
 	Location nowhere = {
 		file = (char*)0,
@@ -25,9 +25,37 @@ void main()
 
 	printLocation(&nowhere);
 
-	sys.setExitCode(1);
+	setExitCode(1);
 }
 
 void printLocation(Location* loc)
-	io.printLine(loc.file + ":" + loc.startLine.toString() + ":" + loc.startColumn.toString()
-		+ "-" + loc.endLine.toString() + ":" + loc.endColumn.tostring());
+{
+	char[1000] str = {};
+	int i = 0;
+	if (loc.file) {
+		i += strLen(file);
+		memCopy(str, file, i, 0);
+	}
+	s32ToStr(loc.startLine, str + i);
+	i += strLen(str + i);
+
+	str[i] = ':';
+	i++;
+	
+	s32ToStr(loc.startColumn, str + i);
+	i += strLen(str + i);
+
+	str[i] = '-';
+	i++;
+	
+	s32ToStr(loc.endLine, str + i);
+	i += strLen(str + i);
+
+	str[i] = ':';
+	i++;
+	
+	s32ToStr(loc.endColumn, str + i);
+	i += strLen(str + i);
+
+	printLine(str);
+}
