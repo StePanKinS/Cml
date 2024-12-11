@@ -4,5 +4,6 @@ internal abstract class Executable(Location location, StructDefinition? returnTy
 {
     public StructDefinition? ReturnType = returnType;
 
-    public static int Priority = -1;
+    public abstract int Priority { get; }
+    public abstract bool IsRightToLeft { get; }
 }
