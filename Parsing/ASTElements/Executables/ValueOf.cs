@@ -6,6 +6,6 @@ internal class ValueOf(NameToken name, Location location) : Executable(location)
 {
     public NameToken Name = name;
     
-    public override int Priority => 0;
+    public new const int Priority = 0;
     public override bool IsRightToLeft => false;
 }

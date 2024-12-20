@@ -2,5 +2,5 @@ namespace Cml.Parsing;
 
 internal class Division(Executable left, Executable right, Location location) : Binary(left, right, location)
 {
-    public override int Priority => 3;
+    public new const int Priority = 3;
 }

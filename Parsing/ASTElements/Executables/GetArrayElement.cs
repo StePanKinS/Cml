@@ -5,6 +5,6 @@ internal class GetArrayElement(Executable arrayPtr, Executable index, Location l
     public Executable ArrayPtr = arrayPtr;
     public Executable Index = index;
     
-    public override int Priority => 1;
+    public new const int Priority = 1;
     public override bool IsRightToLeft => false;
 }

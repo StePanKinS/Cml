@@ -4,6 +4,6 @@ internal abstract class Unary(Executable value, Location location) : Executable(
 {
     public Executable Name = value;
 
-    public override int Priority => 2;
+    public new const int Priority = 2;
     public override bool IsRightToLeft => true;
 }

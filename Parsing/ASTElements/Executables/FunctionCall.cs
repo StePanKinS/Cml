@@ -7,6 +7,6 @@ internal class FunctionCall(Executable funcPtr, List<Executable> args, Location 
     public Executable FuncPtr = funcPtr;
     public List<Executable> Args = args;
     
-    public override int Priority => 1;
+    public new const int Priority = 1;
     public override bool IsRightToLeft => false;
 }
