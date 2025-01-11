@@ -5,5 +5,5 @@ internal abstract class Executable(Location location, StructDefinition? returnTy
     public StructDefinition? ReturnType = returnType;
 
     public const int Priority = -1;
-    public abstract bool IsRightToLeft { get; }
+    public const bool IsRightToLeft = false;
 }

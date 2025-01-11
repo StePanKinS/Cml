@@ -8,5 +8,5 @@ internal class Dot(Executable left, NameToken right, Location location) : Execut
     public NameToken Right = right;
     
     public new const int Priority = 1;
-    public override bool IsRightToLeft => false;
+    public new const bool IsRightToLeft = false;
 }

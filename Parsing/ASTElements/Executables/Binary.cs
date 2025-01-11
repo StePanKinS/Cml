@@ -5,5 +5,5 @@ internal abstract class Binary(Executable left, Executable right, Location locat
     public Executable Left = left;
     public Executable Right = right;
 
-    public override bool IsRightToLeft => false;
+    public new const bool IsRightToLeft = false;
 }

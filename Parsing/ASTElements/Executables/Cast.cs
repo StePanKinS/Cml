@@ -8,5 +8,5 @@ internal class Cast(NameToken typeName, Executable value, Location location) : E
     public Executable Value = value;
 
     public new const int Priority = 2;
-    public override bool IsRightToLeft => true;
+    public new const bool IsRightToLeft = true;
 }

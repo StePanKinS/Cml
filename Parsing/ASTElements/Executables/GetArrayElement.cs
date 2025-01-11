@@ -6,5 +6,5 @@ internal class GetArrayElement(Executable arrayPtr, Executable index, Location l
     public Executable Index = index;
     
     public new const int Priority = 1;
-    public override bool IsRightToLeft => false;
+    public new const bool IsRightToLeft = false;
 }

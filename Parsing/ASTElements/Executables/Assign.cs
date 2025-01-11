@@ -6,5 +6,5 @@ internal abstract class Assign(Executable address, Executable value, Location lo
     public Executable Value = value;
 
     public new const int Priority = 13;
-    public override bool IsRightToLeft => true;
+    public new const bool IsRightToLeft = true;
 }
