@@ -1,6 +1,7 @@
 ﻿namespace Cml.Parsing;
 
-internal class CodeBlock(List<Executable> code, Location location) : Executable(location)
+internal class CodeBlock(List<Executable> code, NameContext locals, Location location) : Executable(location)
 {
     public List<Executable> Code = code;
+    public NameContext LocalVariables = locals;
 }

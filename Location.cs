@@ -1,6 +1,6 @@
 namespace Cml;
 
-public class Location(string file, int sLine, int eLine, int sCol, int eCol) {
+public class Location(string file, int sLine, int sCol, int eLine, int eCol) {
     public string File = file;
 
     // Starting from 0
@@ -9,10 +9,17 @@ public class Location(string file, int sLine, int eLine, int sCol, int eCol) {
     public int StartColumn = sCol;
     public int EndColumn = eCol; // Exclusive
 
-#pragma warning disable CS8625
-    public static readonly Location Nowhere = new(null, -1, -1, -1, -1);
-#pragma warning restore CS8625
+    public Location(Location start, Location end) : this
+    (
+        start.File,
+        start.StartLine,
+        start.StartColumn,
+        end.EndLine,
+        end.EndColumn
+    ) { }
+
+    public static readonly Location Nowhere = new(null!, -1, -1, -1, -1);
 
     public override string ToString()
-        => $"{File}:{StartLine}:{StartColumn}";
+        => $"{File}:{StartLine}:{StartColumn}-{EndLine}:{EndColumn}";
 }

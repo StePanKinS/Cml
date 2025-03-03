@@ -25,7 +25,7 @@ foreach (var import in parsedFile.Imports)
 {
     Console.WriteLine(import.File);
 }
-foreach (var definition in parsedFile.Definitions)
+foreach (var definition in parsedFile.Definitions.Names.Values)
 {
     Console.WriteLine(definition.Name);
 }

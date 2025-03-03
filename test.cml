@@ -28,9 +28,9 @@ void main()
 	setExitCode(1);
 }
 
-void printLocation(Location* loc)
+s32 printLocation(Location* loc)
 {
-	char[1000] str = {};
+	char* str = stackAlloc(sizeof(char) * 1000);
 	int i = 0;
 	if (loc.file) {
 		i += strLen(file);
@@ -58,4 +58,7 @@ void printLocation(Location* loc)
 	i += strLen(str + i);
 
 	printLine(str);
+
+
+	reurn 0;
 }

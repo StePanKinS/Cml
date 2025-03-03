@@ -85,7 +85,7 @@ internal static class Lexer
 
         void endAcum()
         {
-            Location loc = new(path, startCol, startLine, line, col);
+            Location loc = new(path, startLine, startCol, line, col);
 
             if (acum.Length == 0)
             {
