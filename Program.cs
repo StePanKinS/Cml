@@ -1,4 +1,5 @@
-﻿using Cml.Lexing;
+﻿using Cml;
+using Cml.Lexing;
 using Cml.Parsing;
 
 string path;
@@ -14,9 +15,9 @@ else
 
 List<Token> tokens = Lexer.Process(path);
 
-foreach (Token token in tokens)
+foreach ((int i, Token token) in tokens.Enumerate())
 {
-    Console.WriteLine(token);
+    Console.WriteLine($"{i} {token.Location}: {token}");
 }
 
 ParsedFile parsedFile = Parser.Process(tokens);

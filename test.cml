@@ -60,5 +60,5 @@ s32 printLocation(Location* loc)
 	printLine(str);
 
 
-	reurn 0;
+	return 0;
 }

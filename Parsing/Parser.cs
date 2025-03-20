@@ -236,6 +236,54 @@ internal static class Parser
 
             return new CodeBlock(code, nameContext, location);
         }
+        else if (token is KeywordToken keywordToken)
+        {
+            if (keywordToken.Value == Keywords.If)
+            {
+                Location location;
+                token = tokens[i++];
+                if (token is not SymbolToken circleOpenToken || circleOpenToken.Value != Symbols.CircleOpen)
+                {
+                    Util.Exit(token, $"Expected `(` at start of condition expression, not `{token}`");
+                    throw new UnreachableException();
+                }
+                int exprStart = i;
+
+                if (!skipAfterSymbol(tokens, Symbols.CircleClose, ref i, setCursorOnSymbol: true))
+                {
+                    location = new(tokens[exprStart].Location, tokens[^1].Location);
+                    Util.Exit(location, "Can not find the end of conditional expression");
+                    throw new UnreachableException();
+                }
+                int exprEnd = i++;
+
+                Executable? condition = parseExprssion(tokens, nameCtx, exprStart, exprEnd);
+                if (condition == null)
+                {
+                    location = new(tokens[exprStart].Location, tokens[exprEnd - 1].Location);
+                    Util.Exit(location, "Can not parse conditional expression");
+                    throw new UnreachableException();
+                }
+
+                Executable body = parseInstruction(tokens, nameCtx, ref i);
+                location = new(keywordToken.Location, body.Location);
+                Executable? elseBody = null;
+
+                if (tokens[i] is KeywordToken elseKeywordToken && elseKeywordToken.Value == Keywords.Else)
+                {
+                    i++;
+                    elseBody = parseInstruction(tokens, nameCtx, ref i);
+                    location = new(location, elseBody.Location);
+                }
+
+                return new IfKeyword(condition, body, elseBody, location);
+            }
+            else if (keywordToken.Value == Keywords.Return)
+            {
+                Executable value = parseInstruction(tokens, nameCtx, ref i);
+                return new ReturnKeyword(value, new Location(keywordToken.Location, value.Location));
+            }
+        }
 
         if (!skipAfterSymbol(tokens, Symbols.Semicolon, ref i, setCursorOnSymbol: true, skipInnerPrantecies: false))
         {
@@ -281,6 +329,9 @@ internal static class Parser
 
             if (token is StringLiteralToken stringLiteralToken)
                 return new StringLiteral(stringLiteralToken);
+
+            if (token is CharLiteralToken charLiteralToken)
+                return new CharLiteral(charLiteralToken);
 
             if (token is ILiteralToken)
                 return new BoolLiteral(new(false, Location.Nowhere));
@@ -367,6 +418,7 @@ internal static class Parser
             }
             else if (token is NameToken)
             {
+                // TODO: detect unnamed functions;
                 if (i + 1 < end && tokens[i + 1] is SymbolToken circleOpentoken && circleOpentoken.Value == Symbols.CircleOpen)
                 {
                     if (FunctionCall.Priority > leastPriority)
@@ -454,12 +506,17 @@ internal static class Parser
                 Symbols.AndEquals => new AndAssign(getLeft(), getRight(), binaryLocation),
                 Symbols.OrEquals => new OrAssign(getLeft(), getRight(), binaryLocation),
                 Symbols.XorEquals => new XorAssign(getLeft(), getRight(), binaryLocation),
-                Symbols.Decrement => new Decrement(getRight(), false, binaryLocation),
-                Symbols.Increment => new Increment(getRight(), false, binaryLocation),
+                Symbols.Decrement => isPostRement(leastPriorityToken) ?
+                    new Decrement(getLeft(), true, new Location(tokens[start].Location, tokens[leastPriorityToken].Location)) :
+                    new Decrement(getRight(), false, unaryRightLocation),
+                Symbols.Increment => isPostRement(leastPriorityToken) ?
+                    new Increment(getLeft(), true, new Location(tokens[start].Location, tokens[leastPriorityToken].Location)) :
+                    new Increment(getRight(), false, unaryRightLocation),
                 Symbols.Dot => parseDot(),
                 Symbols.CircleClose => parseCast(),
                 Symbols.CircleOpen => parseFuncCall(),
                 Symbols.CurlyOpen => parseStructInitialization(),
+                Symbols.SquareOpen => parseGetArrayElement(),
 
                 _ => null
             };
@@ -572,6 +629,20 @@ internal static class Parser
 
         bool checkIfUnary(int pos)
             => parseExprssion(tokens, nameCtx, start, pos) == null;
+
+        bool isPostRement(int pos)
+        {
+            Executable? left = parseExprssion(tokens, nameCtx, start, pos);
+            if (left != null)
+                return true;
+
+            Executable? right = parseExprssion(tokens, nameCtx, pos + 1, end);
+            if (right != null) 
+                return false;
+
+            problem(start, end, "Cannot identify if post or pre inc/dec-rement");
+            throw new UnreachableException();
+        }
 
         void problem(int start, int end, string message = "Cannot parse this expression")
         {
@@ -725,6 +796,27 @@ internal static class Parser
 
             Location loc = new(tokens[leastPriorityToken].Location, tokens[i++].Location);
             return new StructureInitializer(values, loc);
+        }
+
+        Executable parseGetArrayElement()
+        {
+            Executable arrayPtr = getLeft();
+            int i = leastPriorityToken + 1;
+            int indexStart = i;
+            if (!skipAfterSymbol(tokens, Symbols.SquareClose, ref i, end: end, setCursorOnSymbol: true))
+            {
+                problem(indexStart, end, "Cannot find the end of expression of array index");
+                throw new UnreachableException();
+            }
+
+            Executable? index = parseExprssion(tokens, nameCtx, indexStart, i);
+            if (index == null)
+            {
+                problem(indexStart, i, "Can not prse expression of array index");
+                throw new UnreachableException();
+            }
+
+            return new GetArrayElement(arrayPtr, index, new(arrayPtr.Location, tokens[i++].Location));
         }
     }
 

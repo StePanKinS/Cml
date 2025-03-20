@@ -1,3 +1,5 @@
+using Cml.Parsing;
+
 namespace Cml.Lexing;
 
 internal static class Lexer
@@ -48,7 +50,16 @@ internal static class Lexer
             if (c == '"')
             {
                 endAcum();
-                readString(ref i, c);
+                readString(ref i);
+                updateStart();
+                continue;
+            }
+
+            if (c == '\'')
+            {
+                endAcum();
+                readChar(ref i);
+                updateStart();
                 continue;
             }
 
@@ -73,6 +84,7 @@ internal static class Lexer
             {
                 endAcum();
                 readSymbol(ref i, c);
+                updateStart();
                 continue;
             }
 
@@ -122,12 +134,11 @@ internal static class Lexer
             startLine = line;
         }
 
-        void readString(ref int pos, char c) 
+        void readString(ref int pos) 
         {
-            char cc = default;
             string value = "";
             while (true) {
-                cc = source[++pos];
+                char cc = source[++pos];
                 if (cc == '"') break;
                 value += cc;
             }
@@ -137,14 +148,24 @@ internal static class Lexer
                 .Replace("\\r", "\n")
                 .Replace("\\a", "\a")
                 .Replace("\\\"", "\"");
-            tokens.Add(new StringLiteralToken(value, new(path, startLine, startCol, line, col + value.Length + 2)));
+
+            col += value.Length + 2;
+
+            tokens.Add(new StringLiteralToken(value, new(path, startLine, startCol, line, col)));
+        }
+
+        void readChar(ref int pos)
+        {
+            // TODO: Read chars
+            pos += 2;
+            col += 3;
+            tokens.Add(new CharLiteralToken('\0', new(path, startLine, startCol, line, col)));
         }
 
         void readSymbol(ref int pos, char c)
         {
             int i = pos;
-            int captured = 0;
-            captured++;
+            int captured = 1;
 
             switch (c)
             {
@@ -359,12 +380,15 @@ internal static class Lexer
                 case ',':
                     addSymbolToken(Symbols.Comma);
                     break;
+                case ':':
+                    addSymbolToken(Symbols.Colon);
+                    break;
                 default:
                     addSymbolToken(Symbols.Unknown);
                     break;
             }
 
-            pos = i;
+            pos += captured - 1;
             col += captured;
             return;
 
@@ -372,7 +396,7 @@ internal static class Lexer
             {
                 Location location = new(path, startLine, startCol, line, col + captured);
 
-                startCol = col;
+                startCol = col + captured;
                 startLine = line;
 
                 SymbolToken symbolToken = new(symbol, location);
