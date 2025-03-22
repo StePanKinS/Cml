@@ -1,5 +1,3 @@
-using Cml.Parsing;
-
 namespace Cml.Lexing;
 
 internal static class Lexer
@@ -144,10 +142,11 @@ internal static class Lexer
             }
             value = value
                 .Replace("\\n", "\n")
-                .Replace("\\t", "\n")
-                .Replace("\\r", "\n")
+                .Replace("\\t", "\t")
+                .Replace("\\r", "\r")
                 .Replace("\\a", "\a")
-                .Replace("\\\"", "\"");
+                .Replace("\\\"", "\"")
+                .Replace("\\\\", "\\");
 
             col += value.Length + 2;
 
@@ -156,10 +155,28 @@ internal static class Lexer
 
         void readChar(ref int pos)
         {
-            // TODO: Read chars
-            pos += 2;
+            pos++;
+            char c;
+            if (source[pos] == '\\')
+            {
+                c = source[++pos] switch
+                {
+                    'n' => '\n',
+                    'r' => '\r',
+                    't' => '\t',
+                    'a' => '\a',
+                    '\\' => '\\',
+                    _ => '\0' // TODO: error system for lexer
+                };
+                pos++;
+                col++;
+            }
+            else
+            {
+                c = source[pos++]; // TODO: not checking if it is a valid char
+            }
             col += 3;
-            tokens.Add(new CharLiteralToken('\0', new(path, startLine, startCol, line, col)));
+            tokens.Add(new CharLiteralToken(c, new(path, startLine, startCol, line, col)));
         }
 
         void readSymbol(ref int pos, char c)
@@ -395,10 +412,6 @@ internal static class Lexer
             void addSymbolToken(Symbols symbol)
             {
                 Location location = new(path, startLine, startCol, line, col + captured);
-
-                startCol = col + captured;
-                startLine = line;
-
                 SymbolToken symbolToken = new(symbol, location);
                 tokens.Add(symbolToken);
             }

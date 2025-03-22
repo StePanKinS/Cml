@@ -13,7 +13,7 @@ struct Location
 
 void main()
 {
-	print("Hello world!!!\n\n\n\n");
+	std.print("Hello world!!!\n\n\n\n");
 
 	Location nowhere = {
 		file = (char*)0,
