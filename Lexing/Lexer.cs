@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Cml.Lexing;
 
 internal static class Lexer
@@ -121,8 +123,21 @@ internal static class Lexer
 
             void processDigit()
             {
-                // TODO: read digit
-                tokens.Add(new IntLiteralToken(0, loc));
+                ulong num;
+                if (acum[0] == '0' && acum.Length > 1)
+                {
+                    num = acum[1] switch
+                    {
+                        'x' => ulong.Parse(acum[2..], NumberStyles.HexNumber),
+                        'b' => ulong.Parse(acum[2..], NumberStyles.BinaryNumber),
+                        _ => ulong.Parse(acum)
+                    };
+                }
+                else
+                    num = ulong.Parse(acum);
+
+                // TODO: catch exceptions
+                tokens.Add(new IntLiteralToken(num, loc));
             }
         }
 
