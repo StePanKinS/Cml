@@ -9,4 +9,6 @@ public enum Keywords
     Else,
     While,
     For,
+    Namespace,
+    Extern,
 }

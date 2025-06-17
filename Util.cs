@@ -13,7 +13,7 @@ public static class Util
     {
         Console.ForegroundColor = ConsoleColor.Red;
         Console.WriteLine();
-        Console.Write($"{location}: ");
+        Console.Write($"{location} ");
         Console.ResetColor();
         Console.WriteLine(message);
 

@@ -9,5 +9,6 @@
   </PropertyGroup>
   <ItemGroup Condition="'$(Configuration)' == 'Debug'">
     <None Update="test.cml" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="test2.cml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

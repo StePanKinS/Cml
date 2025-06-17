@@ -5,40 +5,15 @@ namespace Cml.Parsing;
 
 internal static class Parser
 {
-    public static ParsedFile Process(List<Token> tokens)
-    {
-        List<Import> imports = [];
-        //List<Definition> definitions = [];
-        NameContext globalContext = new(null);
+    private static IEnumerable<Keywords> Modifyers = [Keywords.Extern];
 
-        int i = 0;
+    #region FileProcessing
+    public static ParsedFile Process(List<Token> tokens, NameContext globalContext)
+    {
         try
         {
-            while (i < tokens.Count)
-            {
-                Token token = tokens[i++];
-                if (token is KeywordToken keywordToken)
-                {
-                    if (keywordToken.Value == Keywords.Import)
-                    {
-                        readImport(keywordToken, ref i);
-                        continue;
-                    }
-                    else if (keywordToken.Value == Keywords.Struct)
-                    {
-                        readStruct(keywordToken, ref i);
-                        continue;
-                    }
-                }
-                else if (token is NameToken typeName)
-                {
-                    readFunction(typeName, ref i);
-                    continue;
-                }
-
-                Util.Exit(token, $"Expected import, struct or function definition, not {token}");
-                throw new UnreachableException();
-            }
+            int i = 0;
+            readDefinitions(tokens, globalContext, ref i);
         }
         catch (IndexOutOfRangeException)
         {
@@ -47,10 +22,62 @@ internal static class Parser
             return null;
         }
 
-        return new ParsedFile(tokens[0].Location.File, globalContext, imports);
+        return new ParsedFile(tokens[0].Location.File, globalContext);
+    }
+
+    private static void readDefinitions(List<Token> tokens, NameContext nameCtx, ref int i, bool isTopLevel = true)
+    {
+        List<KeywordToken> modifyers = [];
+        while (i < tokens.Count)
+        {
+            Token token = tokens[i++];
+            if (token is KeywordToken keywordToken)
+            {
+                if (Modifyers.Contains(keywordToken.Value)) {
+                    modifyers.Add(keywordToken);
+                    continue;
+                }
+                else if (keywordToken.Value == Keywords.Import)
+                {
+                    readImport(keywordToken, ref i);
+                    continue;
+                }
+                else if (keywordToken.Value == Keywords.Struct)
+                {
+                    readStruct(keywordToken, ref i);
+                    continue;
+                }
+                else if (keywordToken.Value == Keywords.Namespace)
+                {
+                    readNamespace(keywordToken, ref i);
+                    continue;
+                }
+                else {
+                    Util.Exit(keywordToken, $"Unexpected keyword {keywordToken.Value}");
+                    throw new UnreachableException();
+                }
+            }
+            else if (token is NameToken typeName)
+            {
+                i -= 1;
+                readFunction(typeName, ref i);
+                continue;
+            }
+            else if (!isTopLevel && token is SymbolToken curlyClose && curlyClose.Value == Symbols.CurlyClose)
+                break;
+
+            Util.Exit(token, $"Expected import, struct, namespace or function definition, not {token}");
+            throw new UnreachableException();
+        }
 
         void readImport(KeywordToken keywordToken, ref int i)
         {
+            if (modifyers.Count != 0) {
+                Location loc = new(modifyers[0].Location, modifyers[^1].Location);
+                Util.Exit(loc, "Modifyers are not expected for imports");
+                throw new UnreachableException();
+            }
+
             Token token = tokens[i++];
             if (token is not NameToken fileName)
             {
@@ -67,13 +94,20 @@ internal static class Parser
 
             Location location = new(keywordToken.Location, semicolonToken.Location);
 
-            Import import = new(fileName.Value, keywordToken.Location, location);
+            ImportDefinition import = new(fileName.Value, keywordToken.Location, location);
 
-            imports.Add(import);
+            if (!nameCtx.Add(import))
+                throw new Exception($"Cannot add import {import.Name}");
         }
-
+        
         void readStruct(KeywordToken keywordToken, ref int i)
         {
+            if (modifyers.Count != 0) {
+                Location loc = new(modifyers[0].Location, modifyers[^1].Location);
+                Util.Exit(loc, "Modifyers are not expected for structures");
+                throw new UnreachableException();
+            }
+
             Token token = tokens[i++];
             if (token is not NameToken structName)
             {
@@ -138,11 +172,28 @@ internal static class Parser
             Location location = new(keywordToken.Location, curlyCloseToken.Location);
 
             StructDefinition structDefinition = new(structName.Value, members, location);
-            globalContext.Names[structName.Value] = structDefinition;
-        }
+            if (!nameCtx.Add(structDefinition))
+                throw new Exception($"Can not add struct definition {structDefinition.Name}");
+        }    
 
-        void readFunction(NameToken typeName, ref int i)
+        void readFunction(NameToken typeNameToken, ref int i)
         {
+            bool isExtern = false;
+            foreach (var keywordToken in modifyers) {
+                if (keywordToken.Value == Keywords.Extern)
+                    isExtern = true;
+                else {
+                    Util.Exit(keywordToken, $"Unxepected modifyer `{keywordToken.Value}`");
+                    throw new UnreachableException();
+                }
+            }
+            modifyers.Clear();
+
+            if (!tryReadTypeName(tokens, ref i, out NameToken typeName)) {
+                Util.Exit(typeNameToken, "Can not read type name");
+                throw new UnreachableException();
+            }
+
             Token token = tokens[i++];
             if (token is not NameToken funcName)
             {
@@ -157,7 +208,7 @@ internal static class Parser
                 throw new UnreachableException();
             }
 
-            List<NameTypeTypeName> args = [];
+            NameContext argsNameCtx = new(nameCtx);
             SymbolToken circleCloseToken;
 
             while (true)
@@ -184,8 +235,15 @@ internal static class Parser
                     throw new UnreachableException();
                 }
 
-                NameTypeTypeName nttn = new(memberName, argType);
-                args.Add(nttn);
+                Location argLocation = new(argType.Location, memberName.Location);
+                VariableDefinition arg = new(memberName.Value, argType.Value, argLocation);
+                if (argsNameCtx.Names.TryGetValue(memberName.Value, out Definition? _))
+                {
+                    Util.Exit(memberName, $"Function argument with the name {memberName.Value} already exists");
+                    throw new UnreachableException();
+                }
+
+                argsNameCtx.Names[memberName.Value] = arg;
 
                 token = tokens[i++];
 
@@ -205,15 +263,63 @@ internal static class Parser
                 throw new UnreachableException();
             }
 
-            Executable code = parseInstruction(tokens, globalContext, ref i);
+            Executable? code = null;
+            NameContext? localContext = null;
+            Location location;
+            if (!isExtern) {
+                localContext = new(argsNameCtx);
+                code = parseInstruction(tokens, localContext, ref i);
 
-            Location location = new(typeName.Location, circleCloseToken.Location);
+                location = new(typeName.Location, circleCloseToken.Location);
+            }
+            else {
+                token = tokens[i++];
+                if (token is not SymbolToken semicolonToken || semicolonToken.Value != Symbols.Semicolon) {
+                    Util.Exit(token, $"Expected `;` but got `{token}`");
+                    throw new UnreachableException();
+                }
+                location = new(typeName.Location, semicolonToken.Location);
+            }
+            FunctionDefinition func = new(funcName.Value, typeName.Value, argsNameCtx, code, localContext, isExtern, location);
 
-            FunctionDefinition func = new(funcName.Value, typeName.Value, args, code, location);
+            if (!nameCtx.Add(func))
+                throw new Exception($"Can not add function {func.Name}");
+        }
+        
+        void readNamespace(KeywordToken keywordToken, ref int i)
+        {
+            if (modifyers.Count != 0) {
+                Location loc = new(modifyers[0].Location, modifyers[^1].Location);
+                Util.Exit(loc, "Modifyers are not expected for namespaces");
+                throw new UnreachableException();
+            }
 
-            globalContext.Names[funcName.Value] = func;
+            Token token = tokens[i++];
+            if (token is not NameToken nameToken) {
+                Util.Exit(token, $"Expected namespace name, not {token}");
+                throw new UnreachableException();
+            }
+
+            token = tokens[i++];
+            if (token is not SymbolToken curlyOpen || curlyOpen.Value != Symbols.CurlyOpen) {
+                Util.Exit(token, $"Expected `{'{'}`, not {token}");
+                throw new UnreachableException();
+            }
+            
+            NameContext localCtx = new(nameCtx);
+            readDefinitions(tokens, localCtx, ref i, false);
+
+            Location location = new(keywordToken.Location, tokens[i].Location);
+            NamespaceDefinition namespaceDefinition = new(nameToken.Value, localCtx, location);
+
+            if (!nameCtx.Add(namespaceDefinition)) {
+                Util.Exit(nameToken, $"Something with name `{nameToken.Value}` already exist");
+                throw new UnreachableException();
+            }
         }
     }
+
+
 
     private static Executable parseInstruction(List<Token> tokens, NameContext nameCtx, ref int i)
     {
@@ -363,53 +469,58 @@ internal static class Parser
 
             if (token is SymbolToken symbolToken)
             {
-                (priority, isRightToLeft) = symbolToken.Value switch
-                {
-                    Symbols.Plus => (Addition.Priority, Addition.IsRightToLeft),
-                    Symbols.Minus => checkIfUnary(i) ? (UnaryMinus.Priority, UnaryMinus.IsRightToLeft) : (Subtraction.Priority, Subtraction.IsRightToLeft),
-                    Symbols.Star => checkIfUnary(i) ? (Dereference.Priority, Dereference.IsRightToLeft) : (Multiplication.Priority, Multiplication.IsRightToLeft),
-                    Symbols.Slash => (Division.Priority, Division.IsRightToLeft),
-                    Symbols.Percent => (DivisionReminder.Priority, DivisionReminder.IsRightToLeft),
-                    Symbols.Ampersand => checkIfUnary(i) ? (AddressOf.Priority, AddressOf.IsRightToLeft) : (BitwiseAnd.Priority, BitwiseAnd.IsRightToLeft),
-                    Symbols.AmpersandAmpersand => (And.Priority, And.IsRightToLeft),
-                    Symbols.Verticalbar => (BitwiseOr.Priority, BitwiseOr.IsRightToLeft),
-                    Symbols.VerticalbarVerticalbar => (Or.Priority, Or.IsRightToLeft),
-                    Symbols.UpArrow => (BitwiseXor.Priority, BitwiseXor.IsRightToLeft),
-                    Symbols.Tilda => (BitwiseInverse.Priority, BitwiseInverse.IsRightToLeft),
-                    Symbols.ExclamationMark => (Inverse.Priority, Inverse.IsRightToLeft),
-                    Symbols.LeftShift => (LeftShift.Priority, LeftShift.IsRightToLeft),
-                    Symbols.RightShift => (RightShift.Priority, RightShift.IsRightToLeft),
-                    Symbols.IsEquals => (IsEquals.Priority, IsEquals.IsRightToLeft),
-                    Symbols.NotEquals => (IsNotEquals.Priority, IsNotEquals.IsRightToLeft),
-                    Symbols.LessEquals => (IsLessEquals.Priority, IsLessEquals.IsRightToLeft),
-                    Symbols.GreaterEquals => (IsGreaterEquals.Priority, IsGreaterEquals.IsRightToLeft),
-                    Symbols.Less => (IsLess.Priority, IsLess.IsRightToLeft),
-                    Symbols.Greater => (IsGreater.Priority, IsGreater.IsRightToLeft),
-                    Symbols.Equals => (JustAssign.Priority, JustAssign.IsRightToLeft),
-                    Symbols.PlusEquals => (AddAssign.Priority, AddAssign.IsRightToLeft),
-                    Symbols.MinusEquals => (SubtractAssign.Priority, SubtractAssign.IsRightToLeft),
-                    Symbols.MultiplyEquals => (MultiplyAssign.Priority, MultiplyAssign.IsRightToLeft),
-                    Symbols.DivideEquals => (DivideAssign.Priority, DivideAssign.IsRightToLeft),
-                    Symbols.ReminderEquals => (ReminderAssign.Priority, ReminderAssign.IsRightToLeft),
-                    Symbols.LeftShiftEquals => (LeftShiftAssign.Priority, LeftShiftAssign.IsRightToLeft),
-                    Symbols.RightShiftEquals => (RightShiftAssign.Priority, RightShiftAssign.IsRightToLeft),
-                    Symbols.AndEquals => (AndAssign.Priority, AndAssign.IsRightToLeft),
-                    Symbols.OrEquals => (OrAssign.Priority, OrAssign.IsRightToLeft),
-                    Symbols.XorEquals => (XorAssign.Priority, XorAssign.IsRightToLeft),
-                    Symbols.Decrement => (Decrement.Priority, Decrement.IsRightToLeft),
-                    Symbols.Increment => (Increment.Priority, Increment.IsRightToLeft),
-                    Symbols.Dot => (Dot.Priority, Dot.IsRightToLeft),
+                try {
+                    (priority, isRightToLeft) = symbolToken.Value switch
+                    {
+                        Symbols.Plus => (Addition.Priority, Addition.IsRightToLeft),
+                        Symbols.Minus => checkIfUnary(i) ? (UnaryMinus.Priority, UnaryMinus.IsRightToLeft) : (Subtraction.Priority, Subtraction.IsRightToLeft),
+                        Symbols.Star => checkIfUnary(i) ? (Dereference.Priority, Dereference.IsRightToLeft) : (Multiplication.Priority, Multiplication.IsRightToLeft),
+                        Symbols.Slash => (Division.Priority, Division.IsRightToLeft),
+                        Symbols.Percent => (DivisionReminder.Priority, DivisionReminder.IsRightToLeft),
+                        Symbols.Ampersand => checkIfUnary(i) ? (AddressOf.Priority, AddressOf.IsRightToLeft) : (BitwiseAnd.Priority, BitwiseAnd.IsRightToLeft),
+                        Symbols.AmpersandAmpersand => (And.Priority, And.IsRightToLeft),
+                        Symbols.Verticalbar => (BitwiseOr.Priority, BitwiseOr.IsRightToLeft),
+                        Symbols.VerticalbarVerticalbar => (Or.Priority, Or.IsRightToLeft),
+                        Symbols.UpArrow => (BitwiseXor.Priority, BitwiseXor.IsRightToLeft),
+                        Symbols.Tilda => (BitwiseInverse.Priority, BitwiseInverse.IsRightToLeft),
+                        Symbols.ExclamationMark => (Inverse.Priority, Inverse.IsRightToLeft),
+                        Symbols.LeftShift => (LeftShift.Priority, LeftShift.IsRightToLeft),
+                        Symbols.RightShift => (RightShift.Priority, RightShift.IsRightToLeft),
+                        Symbols.IsEquals => (IsEquals.Priority, IsEquals.IsRightToLeft),
+                        Symbols.NotEquals => (IsNotEquals.Priority, IsNotEquals.IsRightToLeft),
+                        Symbols.LessEquals => (IsLessEquals.Priority, IsLessEquals.IsRightToLeft),
+                        Symbols.GreaterEquals => (IsGreaterEquals.Priority, IsGreaterEquals.IsRightToLeft),
+                        Symbols.Less => (IsLess.Priority, IsLess.IsRightToLeft),
+                        Symbols.Greater => (IsGreater.Priority, IsGreater.IsRightToLeft),
+                        Symbols.Equals => (JustAssign.Priority, JustAssign.IsRightToLeft),
+                        Symbols.PlusEquals => (AddAssign.Priority, AddAssign.IsRightToLeft),
+                        Symbols.MinusEquals => (SubtractAssign.Priority, SubtractAssign.IsRightToLeft),
+                        Symbols.MultiplyEquals => (MultiplyAssign.Priority, MultiplyAssign.IsRightToLeft),
+                        Symbols.DivideEquals => (DivideAssign.Priority, DivideAssign.IsRightToLeft),
+                        Symbols.ReminderEquals => (ReminderAssign.Priority, ReminderAssign.IsRightToLeft),
+                        Symbols.LeftShiftEquals => (LeftShiftAssign.Priority, LeftShiftAssign.IsRightToLeft),
+                        Symbols.RightShiftEquals => (RightShiftAssign.Priority, RightShiftAssign.IsRightToLeft),
+                        Symbols.AndEquals => (AndAssign.Priority, AndAssign.IsRightToLeft),
+                        Symbols.OrEquals => (OrAssign.Priority, OrAssign.IsRightToLeft),
+                        Symbols.XorEquals => (XorAssign.Priority, XorAssign.IsRightToLeft),
+                        Symbols.Decrement => (Decrement.Priority, Decrement.IsRightToLeft),
+                        Symbols.Increment => (Increment.Priority, Increment.IsRightToLeft),
+                        Symbols.Dot => (Dot.Priority, Dot.IsRightToLeft),
 
-                    _ => processDefault(symbolToken, ref i),
+                        _ => processDefault(symbolToken, ref i) ?? throw new NullReferenceException(),
 
-                    // +, -, *, /, %, &, &&, |, ||, ^, ~, !, <<, >>, ==, !=, <=, >=, <, >, =, +=, -=, *=, /=, %=, <<=, >>=, &=, |=, ^=, --, ++, ., ,
-                };
+                        // +, -, *, /, %, &, &&, |, ||, ^, ~, !, <<, >>, ==, !=, <=, >=, <, >, =, +=, -=, *=, /=, %=, <<=, >>=, &=, |=, ^=, --, ++, ., ,
+                    };
+                }
+                catch (NullReferenceException) {
+                    return null;
+                }
 
                 if (priority > leastPriority)
                 {
                     leastPriority = priority;
                     leastPriorityToken = i;
-                } 
+                }
                 else if (priority == leastPriority && !isRightToLeft)
                 {
                     leastPriority = priority;
@@ -434,13 +545,14 @@ internal static class Parser
 
                     endDefaultCase = i + 2;
                     if (!skipAfterSymbol(tokens, Symbols.CircleClose, ref endDefaultCase, end: end))
-                    {
-                        problem(start, end, "Circle bracket is not closed");
-                        throw new UnreachableException();
-                    }
+                        return null;
+                    // {
+                    //     problem(start, end, "Circle bracket is not closed");
+                    //     throw new UnreachableException();
+                    // }
                 }
             }
-            else if (token is ILiteral)
+            else if (token is ILiteralToken)
             {
                 if (leastPriority < 0)
                 {
@@ -467,59 +579,66 @@ internal static class Parser
 
         if (token is SymbolToken parsingSymbolToken)
         {
-            executable = parsingSymbolToken.Value switch
-            {
-                Symbols.Plus => new Addition(getLeft(), getRight(), binaryLocation),
-                Symbols.Minus => leastPriority == UnaryMinus.Priority ?
-                    new UnaryMinus(getRight(), unaryRightLocation) :
-                    new Subtraction(getLeft(), getRight(), binaryLocation),
-                Symbols.Star => leastPriority == Dereference.Priority ?
-                    new Dereference(getRight(), unaryRightLocation) :
-                    new Multiplication(getLeft(), getRight(), binaryLocation),
-                Symbols.Slash => new Division(getLeft(), getRight(), binaryLocation),
-                Symbols.Percent => new DivisionReminder(getLeft(), getRight(), binaryLocation),
-                Symbols.Ampersand => leastPriority == AddressOf.Priority ?
-                    new AddressOf(getRight(), unaryRightLocation) :
-                    new BitwiseAnd(getLeft(), getRight(), binaryLocation),
-                Symbols.AmpersandAmpersand => new And(getLeft(), getRight(), binaryLocation),
-                Symbols.Verticalbar => new BitwiseOr(getLeft(), getRight(), binaryLocation),
-                Symbols.VerticalbarVerticalbar => new Or(getLeft(), getRight(), binaryLocation),
-                Symbols.UpArrow => new BitwiseXor(getLeft(), getRight(), binaryLocation),
-                Symbols.Tilda => new BitwiseInverse(getRight(), binaryLocation),
-                Symbols.ExclamationMark => new Inverse(getRight(), binaryLocation),
-                Symbols.LeftShift => new LeftShift(getLeft(), getRight(), binaryLocation),
-                Symbols.RightShift => new RightShift(getLeft(), getRight(), binaryLocation),
-                Symbols.IsEquals => new IsEquals(getLeft(), getRight(), binaryLocation),
-                Symbols.NotEquals => new IsNotEquals(getLeft(), getRight(), binaryLocation),
-                Symbols.LessEquals => new IsLessEquals(getLeft(), getRight(), binaryLocation),
-                Symbols.GreaterEquals => new IsGreaterEquals(getLeft(), getRight(), binaryLocation),
-                Symbols.Less => new IsLess(getLeft(), getRight(), binaryLocation),
-                Symbols.Greater => new IsGreater(getLeft(), getRight(), binaryLocation),
-                Symbols.Equals => new JustAssign(getLeft(), getRight(), binaryLocation),
-                Symbols.PlusEquals => new AddAssign(getLeft(), getRight(), binaryLocation),
-                Symbols.MinusEquals => new SubtractAssign(getLeft(), getRight(), binaryLocation),
-                Symbols.MultiplyEquals => new MultiplyAssign(getLeft(), getRight(), binaryLocation),
-                Symbols.DivideEquals => new DivideAssign(getLeft(), getRight(), binaryLocation),
-                Symbols.ReminderEquals => new ReminderAssign(getLeft(), getRight(), binaryLocation),
-                Symbols.LeftShiftEquals => new LeftShiftAssign(getLeft(), getRight(), binaryLocation),
-                Symbols.RightShiftEquals => new RightShiftAssign(getLeft(), getRight(), binaryLocation),
-                Symbols.AndEquals => new AndAssign(getLeft(), getRight(), binaryLocation),
-                Symbols.OrEquals => new OrAssign(getLeft(), getRight(), binaryLocation),
-                Symbols.XorEquals => new XorAssign(getLeft(), getRight(), binaryLocation),
-                Symbols.Decrement => isPostRement(leastPriorityToken) ?
-                    new Decrement(getLeft(), true, new Location(tokens[start].Location, tokens[leastPriorityToken].Location)) :
-                    new Decrement(getRight(), false, unaryRightLocation),
-                Symbols.Increment => isPostRement(leastPriorityToken) ?
-                    new Increment(getLeft(), true, new Location(tokens[start].Location, tokens[leastPriorityToken].Location)) :
-                    new Increment(getRight(), false, unaryRightLocation),
-                Symbols.Dot => parseDot(),
-                Symbols.CircleClose => parseCast(),
-                Symbols.CircleOpen => parseFuncCall(),
-                Symbols.CurlyOpen => parseStructInitialization(),
-                Symbols.SquareOpen => parseGetArrayElement(),
+            // Executable? left = getLeft(); // Plz, plz, plz dont look here...
+            // Executable? right = getRight();
+            try {
+                executable = parsingSymbolToken.Value switch
+                {
+                    Symbols.Plus => new Addition(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.Minus => leastPriority == UnaryMinus.Priority ?
+                        new UnaryMinus(getRight() ?? throw new NullReferenceException(), unaryRightLocation) :
+                        new Subtraction(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.Star => leastPriority == Dereference.Priority ?
+                        new Dereference(getRight() ?? throw new NullReferenceException(), unaryRightLocation) :
+                        new Multiplication(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.Slash => new Division(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.Percent => new DivisionReminder(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.Ampersand => leastPriority == AddressOf.Priority ?
+                        new AddressOf(getRight() ?? throw new NullReferenceException(), unaryRightLocation) :
+                        new BitwiseAnd(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.AmpersandAmpersand => new And(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.Verticalbar => new BitwiseOr(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.VerticalbarVerticalbar => new Or(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.UpArrow => new BitwiseXor(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.Tilda => new BitwiseInverse(getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.ExclamationMark => new Inverse(getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.LeftShift => new LeftShift(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.RightShift => new RightShift(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.IsEquals => new IsEquals(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.NotEquals => new IsNotEquals(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.LessEquals => new IsLessEquals(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.GreaterEquals => new IsGreaterEquals(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.Less => new IsLess(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.Greater => new IsGreater(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.Equals => new JustAssign(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.PlusEquals => new AddAssign(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.MinusEquals => new SubtractAssign(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.MultiplyEquals => new MultiplyAssign(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.DivideEquals => new DivideAssign(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.ReminderEquals => new ReminderAssign(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.LeftShiftEquals => new LeftShiftAssign(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.RightShiftEquals => new RightShiftAssign(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.AndEquals => new AndAssign(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.OrEquals => new OrAssign(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.XorEquals => new XorAssign(getLeft() ?? throw new NullReferenceException(), getRight() ?? throw new NullReferenceException(), binaryLocation),
+                    Symbols.Decrement => isPostRement(leastPriorityToken) ?
+                        new Decrement(getLeft() ?? throw new NullReferenceException(), true, new Location(tokens[start].Location, tokens[leastPriorityToken].Location)) :
+                        new Decrement(getRight() ?? throw new NullReferenceException(), false, unaryRightLocation),
+                    Symbols.Increment => isPostRement(leastPriorityToken) ?
+                        new Increment(getLeft() ?? throw new NullReferenceException(), true, new Location(tokens[start].Location, tokens[leastPriorityToken].Location)) :
+                        new Increment(getRight() ?? throw new NullReferenceException(), false, unaryRightLocation),
+                    Symbols.Dot => parseDot(),
+                    Symbols.CircleClose => parseCast(),
+                    Symbols.CircleOpen => parseFuncCall(),
+                    Symbols.CurlyOpen => parseStructInitialization(),
+                    Symbols.SquareOpen => parseGetArrayElement(),
 
-                _ => null
-            };
+                    _ => null
+                };
+            }
+            catch (NullReferenceException) {
+                return null;
+            }
         }
         else if (token is NameToken parsingNameToken)
         {
@@ -577,7 +696,7 @@ internal static class Parser
             return true;
         }
 
-        (int, bool) processDefault(SymbolToken symbolToken, ref int i)
+        (int, bool)? processDefault(SymbolToken symbolToken, ref int i)
         {
             ref int pos = ref endDefaultCase;
             int start = pos;
@@ -623,8 +742,10 @@ internal static class Parser
                 return (StructureInitializer.Priority, StructureInitializer.IsRightToLeft);
             }
 
-            Util.Exit(symbolToken, "Unexpected token in expression :(");
-            throw new UnreachableException();
+            // Util.Exit(symbolToken, "Unexpected token in expression :(");
+            // throw new UnreachableException();
+            // throw new NullReferenceException();
+            return null;
         }
 
         bool checkIfUnary(int pos)
@@ -637,7 +758,7 @@ internal static class Parser
                 return true;
 
             Executable? right = parseExprssion(tokens, nameCtx, pos + 1, end);
-            if (right != null) 
+            if (right != null)
                 return false;
 
             problem(start, end, "Cannot identify if post or pre inc/dec-rement");
@@ -656,44 +777,32 @@ internal static class Parser
             while (true) ;
         }
 
-        Executable getLeft()
-        {
-            Executable? e = parseExprssion(tokens, nameCtx, start, leastPriorityToken);
-            if (e is null)
-                problem(start, leastPriorityToken);
+        Executable? getLeft()
+            => parseExprssion(tokens, nameCtx, start, leastPriorityToken);
 
-            return e!;
+        Executable? getRight()
+            => parseExprssion(tokens, nameCtx, leastPriorityToken + 1, end);
 
-        }
-
-        Executable getRight()
-        {
-            Executable? e = parseExprssion(tokens, nameCtx, leastPriorityToken + 1, end);
-            if (e is null)
-                problem(leastPriorityToken + 1, end - 1);
-
-            return e!;
-
-        }
-
-        Executable parseDot()
+        Executable? parseDot()
         {
             if (leastPriorityToken + 1 >= end || tokens[leastPriorityToken + 1] is not NameToken nameToken)
-            {
-                problem(leastPriorityToken, leastPriorityToken, "Expected a member name after dot expression");
-                throw new UnreachableException();
-            }
-            return new Dot(getLeft(), nameToken, tokens[leastPriorityToken].Location);
+                return null;
+            // {
+            //     problem(leastPriorityToken, leastPriorityToken, "Expected a member name after dot expression");
+            //     throw new UnreachableException();
+            // }
+
+            Executable? left = getLeft();
+            if (left == null)
+                return null;
+            return new Dot(left, nameToken, tokens[leastPriorityToken].Location);
         }
 
-        Executable parseCast()
+        Executable? parseCast()
         {
             Executable? value = parseExprssion(tokens, nameCtx, leastPriorityToken + 1, end);
             if (value == null)
-            {
-                problem(leastPriorityToken + 1, end);
-                throw new UnreachableException();
-            }
+                return null;
 
             int i = leastPriorityToken - 1;
             while (true)
@@ -716,17 +825,20 @@ internal static class Parser
             return new Cast(typeName, value, tokens[leastPriorityToken].Location);
         }
 
-        Executable parseFuncCall()
+        Executable? parseFuncCall()
         {
-            Executable ptr = getLeft();
+            Executable? ptr = getLeft();
+            if (ptr == null)
+                return null;
 
             int argStart = leastPriorityToken + 1;
             int funcEnd = leastPriorityToken + 1;
             if (!skipAfterSymbol(tokens, Symbols.CircleClose, ref funcEnd, end: end, setCursorOnSymbol: true))
-            {
-                problem(argStart, end, "Cannot find function ending `)`");
-                throw new UnreachableException();
-            }
+                return null;
+            // {
+            //     problem(argStart, end, "Cannot find function ending `)`");
+            //     throw new UnreachableException();
+            // }
 
             List<Executable> args = [];
 
@@ -744,10 +856,11 @@ internal static class Parser
 
                 Executable? arg = parseExprssion(tokens, nameCtx, argStart, argEnd);
                 if (arg is null)
-                {
-                    problem(argStart, argEnd, "Can not parse functioon argument expression");
-                    throw new UnreachableException();
-                }
+                    return null;
+                // {
+                //     problem(argStart, argEnd, "Can not parse functioon argument expression");
+                //     throw new UnreachableException();
+                // }
 
                 args.Add(arg);
                 argStart = i;
@@ -756,7 +869,7 @@ internal static class Parser
             return new FunctionCall(ptr, args, tokens[leastPriorityToken].Location);
         }
 
-        Executable parseStructInitialization()
+        Executable? parseStructInitialization()
         {
             Dictionary<string, Executable> values = [];
             int i = leastPriorityToken + 1;
@@ -785,10 +898,7 @@ internal static class Parser
 
                 Executable? expr = parseExprssion(tokens, nameCtx, start, i);
                 if (expr == null)
-                {
-                    problem(start, i);
-                    throw new UnreachableException();
-                }
+                    return null;
                 i++;
 
                 values[memberNameToken.Value] = expr;
@@ -798,23 +908,24 @@ internal static class Parser
             return new StructureInitializer(values, loc);
         }
 
-        Executable parseGetArrayElement()
+        Executable? parseGetArrayElement()
         {
-            Executable arrayPtr = getLeft();
+            Executable? arrayPtr = getLeft();
+            if (arrayPtr == null)
+                return null;
+
             int i = leastPriorityToken + 1;
             int indexStart = i;
             if (!skipAfterSymbol(tokens, Symbols.SquareClose, ref i, end: end, setCursorOnSymbol: true))
-            {
-                problem(indexStart, end, "Cannot find the end of expression of array index");
-                throw new UnreachableException();
-            }
+                return null;
 
             Executable? index = parseExprssion(tokens, nameCtx, indexStart, i);
             if (index == null)
-            {
-                problem(indexStart, i, "Can not prse expression of array index");
-                throw new UnreachableException();
-            }
+                return null;
+            // {
+            //     problem(indexStart, i, "Can not prse expression of array index");
+            //     throw new UnreachableException();
+            // }
 
             return new GetArrayElement(arrayPtr, index, new(arrayPtr.Location, tokens[i++].Location));
         }
@@ -890,4 +1001,157 @@ internal static class Parser
 
         return true;
     }
+    #endregion
+
+    #region ASTProcessing
+    public static void SetReferences(NameContext nameCtx)
+    {
+        foreach (Definition definition in nameCtx.Names.Values)
+        {
+            if (definition is FunctionDefinition func)
+            {
+                var returnType = castToType(nameCtx.GetValue(func.ReturnTypeName), func.ReturnTypeName, func.Location);
+                func.ReturnType = returnType;
+                foreach (var arg in func.Args.Names.Values)
+                {
+                    VariableDefinition varArg = (VariableDefinition)arg;
+                    varArg.ValueType = castToType(func.Args.GetValue(varArg.TypeName), varArg.TypeName, arg.Location);
+                }
+                if (func.IsExtern)
+                    continue;
+                if (!processExecutable(func.Code!, func.LocalNameContext!, returnType) && returnType != StructDefinition.Void)
+                {
+                    Util.Exit(func.Location, "Function does not return value");
+                    throw new UnreachableException();
+                }
+            }
+        }
+    }
+
+    private static bool processExecutable(Executable executable, NameContext nameCtx, StructDefinition? expectedType = null)
+    {
+        if (executable is ValueOf valueOf)
+        {
+            Definition? def = nameCtx.GetValue(valueOf.Name.Value);
+            if (def == null)
+            {
+                Util.Exit(valueOf.Location, $"Variable {valueOf.Name.Value} is not defined");
+                throw new UnreachableException();
+            }
+            if (def is VariableDefinition varDef)
+            {
+                executable.ReturnType = varDef.ValueType;
+                return false;
+            }
+            if (def is FunctionDefinition funcDef)
+            {
+                FunctionPointer funcPtr = new(funcDef.ReturnType!, (from s in funcDef.Args.Names.Values select ((VariableDefinition)s).ValueType).ToArray());
+                executable.ReturnType = funcPtr;
+                return false;
+            }
+            if (def is StructDefinition)
+            {
+                executable.ReturnType = StructDefinition.Void;
+                return false;
+            }
+            // TODO: namespaces
+            throw new NotImplementedException($"Unknown definition type {def.GetType().Name}");
+        }
+        if (executable is Cast cast)
+        {
+            StructDefinition castType = castToType(nameCtx.GetValue(cast.TypeName.Value), cast.TypeName.Value, cast.TypeName.Location);
+            cast.ReturnType = castType;
+            // TODO: check if can cast
+            return processExecutable(cast.Value, nameCtx);
+        }
+        if (executable is CodeBlock codeBlock)
+        {
+            codeBlock.ReturnType = StructDefinition.Void;
+            bool doesReturn = false;
+            foreach (var innerExecutable in codeBlock.Code)
+            {
+                if (processExecutable(innerExecutable, codeBlock.LocalVariables))
+                    doesReturn = true;
+            }
+            return doesReturn;
+        }
+        if (executable is Dot dot)
+        {
+            processExecutable(dot.Left, nameCtx);
+            Definition? def = getDotReturnType(dot, nameCtx);
+            if (def == null)
+            {
+                Util.Exit(dot.Location, "Invalid dot expression");
+                throw new UnreachableException();
+            }
+            if (def is StructDefinition returnType)
+                dot.ReturnType = returnType;
+            else
+                dot.ReturnType = StructDefinition.Void;
+
+            return false;
+        }
+        if (executable is FunctionCall funcCall)
+        {
+            processExecutable(funcCall.FuncPtr, nameCtx);
+            if (funcCall.FuncPtr.ReturnType is not FunctionPointer funcPtr)
+            {
+                Util.Exit(funcCall.FuncPtr.Location, $"Expected a pointer to a function, not regular expression with return type {funcCall.FuncPtr.ReturnType}");
+                throw new UnreachableException();
+            }
+            funcCall.ReturnType = funcPtr.ReturnType;
+
+            return false;
+        }
+
+        throw new NotImplementedException($"Unknown executable type {executable.GetType().Name}");
+    }
+
+    private static StructDefinition castToType(Definition? definition, string typeName, Location location)
+    {
+        if (definition == null)
+        {
+            Util.Exit(location, $"Type with name {typeName} does not exist");
+            throw new UnreachableException();
+        }
+        if (definition is not StructDefinition structtttt)
+        {
+            Util.Exit(location, $"{typeName} is a {definition.GetType().Name}, expected struct definition");
+            throw new UnreachableException();
+        }
+        return structtttt;
+    }
+
+    private static Definition? getDotReturnType(Dot dotExpr, NameContext nameCtx)
+    {
+        Definition? def;
+        if (dotExpr.Left is Dot dot)
+        {
+            def = getDotReturnType(dot, nameCtx);
+        }
+        else if (dotExpr.Left is ValueOf valueOf)
+        {
+            nameCtx.Names.TryGetValue(valueOf.Name.Value, out def);
+        }
+        else
+            def = dotExpr.Left.ReturnType;
+
+        if (def is StructDefinition structDef)
+        {
+            foreach (var nttn in structDef.Members)
+            {
+                if (nttn.Name.Value == dotExpr.Right.Value)
+                    return nttn.Type;
+            }
+
+            return null;
+        }
+        if (def is FunctionDefinition)
+            return null;
+        if (def is VariableDefinition)
+            return null;
+
+        throw new NotImplementedException();
+    }
+    #endregion
 }

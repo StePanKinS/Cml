@@ -1,9 +1,8 @@
 ﻿namespace Cml.Parsing;
 
-internal class ParsedFile(string path, NameContext definitions, List<Import> imports)
+internal class ParsedFile(string path, NameContext definitions)
 {
     public string Path = path;
-    //public List<Definition> Definitions = definitions;
     public NameContext Definitions = definitions;
-    public List<Import> Imports = imports;
+    // public List<Import> Imports = imports;
 }

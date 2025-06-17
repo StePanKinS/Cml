@@ -11,6 +11,13 @@ struct Location
 	s32 endColumn
 }
 
+namespace std {
+	extern void print(char* data);
+}
+extern void* stackAlloc(s32 size);
+extern void intToStr(char* dst, int num);
+
+
 void main()
 {
 	std.print("Hello world!!!\n\n\n\n");
@@ -36,29 +43,37 @@ s32 printLocation(Location* loc)
 		i += strLen(file);
 		memCopy(str, file, i, 0);
 	}
-	s32ToStr(loc.startLine, str + i);
+	intToStr(loc.startLine, str + i);
 	i += strLen(str + i);
 
 	str[i] = ':';
 	i++;
 	
-	s32ToStr(loc.startColumn, str + i);
+	intToStr(loc.startColumn, str + i);
 	i += strLen(str + i);
 
 	str[i] = '-';
 	i++;
 	
-	s32ToStr(loc.endLine, str + i);
+	intToStr(loc.endLine, str + i);
 	i += strLen(str + i);
 
 	str[i] = ':';
 	i++;
 	
-	s32ToStr(loc.endColumn, str + i);
+	intToStr(loc.endColumn, str + i);
 	i += strLen(str + i);
 
-	printLine(str);
+	std.print(str);
+	std.print("\n");
 
 
 	return 0;
+}
+
+int strLen(char* str) {
+	int len;
+	len = -1;
+	while(str[++len]);
+	retturn len;
 }

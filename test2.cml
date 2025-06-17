@@ -1,0 +1,7 @@
+
+extern void printf(char* str);
+
+void main()
+{
+    printf("hello world");
+}

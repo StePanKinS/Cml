@@ -6,4 +6,6 @@ internal abstract class Executable(Location location, StructDefinition? returnTy
 
     public const int Priority = -1;
     public const bool IsRightToLeft = false;
+
+    internal virtual string GetIR() { return string.Empty; }
 }

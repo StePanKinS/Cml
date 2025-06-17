@@ -21,5 +21,5 @@ public class Location(string file, int sLine, int sCol, int eLine, int eCol) {
     public static readonly Location Nowhere = new(null!, -1, -1, -1, -1);
 
     public override string ToString()
-        => $"{File}:{StartLine}:{StartColumn}-{EndLine}:{EndColumn}";
+        => $"{File}:{StartLine + 1}:{StartColumn}-{EndLine + 1}:{EndColumn}";
 }
