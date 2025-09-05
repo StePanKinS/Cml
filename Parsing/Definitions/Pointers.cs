@@ -1,8 +1,9 @@
-namespace Cml.Parsing;
+namespace Cml.Parsing.Definitions;
 
-internal class Pointer(StructDefinition pointsTo) : StructDefinition(pointsTo.Name + '*', [], Location.Nowhere);
+public class Pointer(StructDefinition pointsTo) : StructDefinition(pointsTo.Name + '*', [], null!, Location.Nowhere);
 
-internal class FunctionPointer(StructDefinition returnType, StructDefinition[] args) : StructDefinition(getName(returnType, args), [], Location.Nowhere)
+public class FunctionPointer(StructDefinition returnType, StructDefinition[] args)
+    : StructDefinition(getName(returnType, args), [], null!, Location.Nowhere)
 {
     public StructDefinition ReturnType = returnType;
     public StructDefinition[] Args = args;
@@ -19,6 +20,6 @@ internal class FunctionPointer(StructDefinition returnType, StructDefinition[] a
     }
 
     public override string ToString()
-        => $"FuncPtr({getName(ReturnType, Args)})";
+        => $"FunctionPointer({getName(ReturnType, Args)})";
 
 }

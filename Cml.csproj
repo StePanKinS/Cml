@@ -11,7 +11,7 @@
     <None Update="test2.cml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Remove="Parsing\**" />
-    <None Remove="Parsing\**" />
+    <Compile Remove="ParsingOld\**" />
+    <None Remove="ParsingOld\**" />
   </ItemGroup>
 </Project>

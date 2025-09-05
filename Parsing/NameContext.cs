@@ -1,33 +1,66 @@
-﻿using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using Cml.Parsing.Definitions;
 
 namespace Cml.Parsing;
 
-internal class NameContext(NameContext? parent)
+public class NameContext(NameContext? parent)
 {
     public NameContext? Parent = parent;
-    public Dictionary<string, Definition> Names = [];
+    public List<NamespaceDefinition> Namespaces = [];
+    public List<StructDefinition> Structs = [];
+    public List<FunctionDefinition> Functions = [];
+    public List<VariableDefinition> Variables = [];
 
-    public Definition? GetValue(string name)
+    
+    public bool Append(Definition definition)
     {
-        if (name[^1] == '*')
+        if ((from def in (IEnumerable<Definition>)[.. Namespaces, .. Structs, .. Functions, .. Variables]
+             where def.Name == definition.Name
+             select def).ToArray().Length > 0)
+            return false;
+
+        if (definition is NamespaceDefinition nmsp)
         {
-            Definition? definition = GetValue(name[..^1]);
-
-            if (definition is not StructDefinition structDef)
-                return null;
-
-            return new Pointer(structDef);
+            Namespaces.Add(nmsp);
+            return true;
+        }
+        if (definition is StructDefinition struc)
+        {
+            Structs.Add(struc);
+            return true;
+        }
+        if (definition is FunctionDefinition func)
+        {
+            Functions.Add(func);
+            return true;
+        }
+        if (definition is VariableDefinition variable)
+        {
+            Variables.Add(variable);
+            return true;
         }
 
-        if (Names.TryGetValue(name, out Definition? value))
-                return value;
-
-        if (Parent != null)
-            return Parent.GetValue(name);
-
-        return null;
+        throw new ArgumentException($"Unexpected type {definition.GetType().FullName} in {nameof(definition)}");
     }
 
-    public bool Add(Definition def)
-        => Names.TryAdd(def.Name, def);
+    public bool TryGetName(string name, [MaybeNullWhen(false)] out Definition definition)
+    {
+        var defs = (from def in (IEnumerable<Definition>)[.. Namespaces, .. Structs, .. Functions, .. Variables]
+                    where def.Name == name
+                    select def).ToArray();
+        if (defs.Length == 1)
+        {
+            definition = defs[0];
+            return true;
+        }
+
+        if (defs.Length > 1)
+            throw new Exception($"Found several `{name}` names");
+
+        if (Parent != null)
+            return Parent.TryGetName(name, out definition);
+
+        definition = null;
+        return false;
+    }
 }
