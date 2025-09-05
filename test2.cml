@@ -3,5 +3,6 @@ extern void printf(char* str);
 
 void main()
 {
+    int a = 0;
     printf("hello world");
 }

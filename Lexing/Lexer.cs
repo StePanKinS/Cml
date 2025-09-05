@@ -1,435 +1,324 @@
-using System.Globalization;
+using System.Collections;
+using System.Diagnostics.CodeAnalysis;
+using System.Text;
 
 namespace Cml.Lexing;
 
-internal static class Lexer
+public class Lexer(string fileName) : IEnumerable<Token>
 {
-    internal static List<Token> Process(string path)
+    private readonly EnumerableReader<char> er = new StreamReader(fileName).ReadToEnd().GetReader();
+    private readonly LocationTracker lt = new(fileName);
+    private string acum = "";
+
+
+    private Token? readNextToken()
     {
-        List<Token> tokens = [];
-
-        string source = File.ReadAllText(path);
-
-        int line = 0;
-        int col = 0;
-
-        int startLine = 0;
-        int startCol = 0;
-
-        string acum = "";
-
-
-
-        for (int i = 0; i < source.Length; i++)
+        while (true)
         {
-            char c = source[i];
+            Token? token;
+            char c, d;
 
-            if (c == '\n')
-            {
-                endAcum();
-
-                line++;
-                col = 0;
-
-                updateStart();
-                continue;
-            }
-
-            if (c == '\r' && i + 1 < source.Length && source[i + 1] == '\n')
-            {
-                endAcum();
-
-                i++;
-                line++;
-                col = 0;
-
-                updateStart();
-                continue;
-            }
-
-            if (c == '"')
-            {
-                endAcum();
-                readString(ref i);
-                updateStart();
-                continue;
-            }
-
-            if (c == '\'')
-            {
-                endAcum();
-                readChar(ref i);
-                updateStart();
-                continue;
-            }
-
-            if (char.IsWhiteSpace(c))
-            {
-                endAcum();
-
-                col++;
-
-                updateStart();
-                continue;
-            }
+            if (!er.Peek(out c))
+                return endAcum(out token) ? token : null;
 
             if (c == '_' || char.IsLetterOrDigit(c))
             {
                 acum += c;
-                col++;
+                lt.NextCol();
+                er.Read(out c);
                 continue;
             }
 
-            if (char.IsSymbol(c) || char.IsPunctuation(c))
+            if (endAcum(out token))
+                return token;
+
+            lt.NextCol();
+
+            switch (c)
             {
-                endAcum();
-                readSymbol(ref i, c);
-                updateStart();
-                continue;
-            }
-
-            col++;
-        }
-        
-
-        return tokens;
-
-
-        void endAcum()
-        {
-            Location loc = new(path, startLine, startCol, line, col);
-
-            if (acum.Length == 0)
-            {
-                updateStart();
-                return;
-            }
-
-            if (char.IsDigit(acum[0]))
-            {
-                processDigit();
-            }
-            else if (Enum.TryParse<Keywords>(acum, true, out var result))
-            {
-                tokens.Add(new KeywordToken(result, loc));
-            }
-            else
-            {
-                tokens.Add(new NameToken(acum, loc));
-            }
-
-            acum = "";
-            updateStart();
-
-            void processDigit()
-            {
-                ulong num;
-                if (acum[0] == '0' && acum.Length > 1)
-                {
-                    num = acum[1] switch
+                case '\r':
+                    if (er.Peek(out d) && d == '\n')
+                        goto case '\n';
+                    return new Token<string>("Unexpected \\r symbol", TokenType.Unknown, lt.GetLocation(true));
+                case '\n':
+                    lt.NextLine(true);
+                    if (!er.Read(out _))
+                        return null;
+                    continue;
+                case '"':
+                    token = readString();
+                    break;
+                case '\'':
+                    token = readChar();
+                    break;
+                default:
+                    if (char.IsWhiteSpace(c))
                     {
-                        'x' => ulong.Parse(acum[2..], NumberStyles.HexNumber),
-                        'b' => ulong.Parse(acum[2..], NumberStyles.BinaryNumber),
-                        _ => ulong.Parse(acum)
-                    };
-                }
+                        if (!er.Read(out _))
+                            return null;
+                        lt.UpdateStart();
+                        continue;
+                    }
+                    if (char.IsSymbol(c) || char.IsPunctuation(c))
+                    {
+                        token = readSymbol();
+                        break;
+                    }
+                    return new Token<string>($"Unexpected character `{c}`", TokenType.Unknown, lt.GetLocation(true));
+            }
+
+            lt.UpdateStart();
+            return token;
+        }
+    }
+
+    private Token readSymbol()
+    {
+        er.Read(out char c);
+        Symbols symbol = Symbols.Unknown;
+
+        switch (c)
+        {
+            case '(':
+                symbol = Symbols.CircleOpen;
+                break;
+            case ')':
+                symbol = Symbols.CircleClose;
+                break;
+            case '{':
+                symbol = Symbols.CurlyOpen;
+                break;
+            case '}':
+                symbol = Symbols.CurlyClose;
+                break;
+            case '[':
+                symbol = Symbols.SquareOpen;
+                break;
+            case ']':
+                symbol = Symbols.SquareClose;
+                break;
+            case ';':
+                symbol = Symbols.Semicolon;
+                break;
+            case ',':
+                symbol = Symbols.Comma;
+                break;
+            case '*':
+                symbol = Symbols.Star;
+                break;
+            case '=':
+                if (er.Read(out c) && c == '=')
+                    symbol = Symbols.IsEquals;
                 else
-                    num = ulong.Parse(acum);
-
-                // TODO: catch exceptions
-                tokens.Add(new IntLiteralToken(num, loc));
-            }
+                    symbol = Symbols.Equals;
+                break;
         }
 
-        void updateStart()
+        if (symbol == Symbols.Unknown)
+            return new Token<string>("Unknown symbol", TokenType.Unknown, lt.GetLocation());
+
+        return new Token<Symbols>(symbol, TokenType.Symbol, lt.GetLocation());
+    }
+
+    private Token readChar()
+    {
+        er.Read(out _);
+        er.Read(out char c);
+        lt.NextCol();
+        if (c == '\\')
         {
-            startCol = col;
-            startLine = line;
-        }
+            if (!er.Read(out c))
+                return new Token<string>("Unclosed char literal", TokenType.Unknown, lt.GetLocation());
 
-        void readString(ref int pos) 
-        {
-            string value = "";
-            while (true) {
-                char cc = source[++pos];
-                if (cc == '"') break;
-                value += cc;
-            }
-            value = value
-                .Replace("\\n", "\n")
-                .Replace("\\t", "\t")
-                .Replace("\\r", "\r")
-                .Replace("\\a", "\a")
-                .Replace("\\\"", "\"")
-                .Replace("\\\\", "\\");
-
-            col += value.Length + 2;
-
-            tokens.Add(new StringLiteralToken(value, new(path, startLine, startCol, line, col)));
-        }
-
-        void readChar(ref int pos)
-        {
-            pos++;
-            char c;
-            if (source[pos] == '\\')
+            lt.NextCol();
+            char? d = c switch
             {
-                c = source[++pos] switch
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                '0' => '\0',
+                '\\' or '\'' => c,
+                _ => null,
+            };
+
+            if (!er.Peek(out c) || c != '\'')
+                return new Token<string>("Unclosed char literal", TokenType.Unknown, lt.GetLocation());
+
+            lt.NextCol();
+
+            if (!d.HasValue)
+                return new Token<string>("Incorrect escaping", TokenType.Unknown, lt.GetLocation());
+
+            c = d.Value;
+        }
+
+        if (!er.Read(out char b) || b != '\'')
+            return new Token<string>("Unclosed char literal", TokenType.Unknown, lt.GetLocation());
+
+        lt.NextCol();
+
+        return new Token<char>(c, TokenType.Literal, lt.GetLocation());
+    }
+
+    private Token readString()
+    {
+        StringBuilder sb = new();
+        er.Read(out _);
+        while (true)
+        {
+            if (!er.Read(out char c))
+                return new Token<string>("Unclosed string literal", TokenType.Unknown, lt.GetLocation());
+
+            if (c == '\n')
+            {
+                Token token = new Token<string>("Unclosed string literal", TokenType.Unknown, lt.GetLocation());
+                lt.NextLine();
+                return token;
+            }
+            lt.NextCol();
+
+            if (c == '"')
+                return new Token<string>(sb.ToString(), TokenType.Literal, lt.GetLocation());
+
+            if (c == '\\')
+            {
+                if (!er.Read(out c))
+                    return new Token<string>("Unclosed string literal", TokenType.Unknown, lt.GetLocation());
+
+                char? d = c switch
                 {
                     'n' => '\n',
                     'r' => '\r',
                     't' => '\t',
-                    'a' => '\a',
-                    '\\' => '\\',
-                    _ => '\0' // TODO: error system for lexer
+                    '0' => '\0',
+                    '\\' or '\"' => c,
+                    _ => null,
                 };
-                pos++;
-                col++;
+
+                if (!d.HasValue)
+                    return new Token<string>("Incorrect escaping", TokenType.Unknown, lt.GetLocation());
+
+                c = d.Value;
             }
-            else
-            {
-                c = source[pos++]; // TODO: not checking if it is a valid char
-            }
-            col += 3;
-            tokens.Add(new CharLiteralToken(c, new(path, startLine, startCol, line, col)));
+
+            sb.Append(c);
+        }
+    }
+
+    private bool endAcum([MaybeNullWhen(false)] out Token token)
+    {
+        token = null;
+
+        if (acum.Length == 0)
+        {
+            lt.UpdateStart();
+            return false;
         }
 
-        void readSymbol(ref int pos, char c)
+        if (char.IsDigit(acum[0]))
         {
-            int i = pos;
-            int captured = 1;
+            if (!processDigit(out token))
+                token = new Token<string>($"Invalid digit literal {acum}", TokenType.Unknown, lt.GetLocation());
+        }
+        else if (Enum.TryParse<Keywords>(acum, true, out var result))
+        {
+            token = new Token<Keywords>(result, TokenType.Keyword, lt.GetLocation());
+        }
+        else
+        {
+            token = new Token<string>(acum, TokenType.Identifier, lt.GetLocation());
+        }
 
-            switch (c)
-            {
-                case '+':
-                    if (i + 1 < source.Length)
-                    {
-                        if (source[i + 1] == '+')
-                        {
-                            captured++;
-                            addSymbolToken(Symbols.Increment);
-                            break;
-                        }
-                        if (source[i + 1] == '=')
-                        {
-                            captured++;
-                            addSymbolToken(Symbols.PlusEquals);
-                            break;
-                        }
-                    }
+        acum = "";
+        lt.UpdateStart();
 
-                    addSymbolToken(Symbols.Plus);
-                    break;
-                case '-':
-                    if (i + 1 < source.Length)
-                    {
-                        if (source[i + 1] == '-')
-                        {
-                            captured++;
-                            addSymbolToken(Symbols.Decrement);
-                            break;
-                        }
-                        if (source[i + 1] == '=')
-                        {
-                            captured++;
-                            addSymbolToken(Symbols.MinusEquals);
-                            break;
-                        }
-                    }
-                    addSymbolToken(Symbols.Minus);
-                    break;
-                case '*':
-                    if (i + 1 < source.Length && source[i+1] == '=')
-                    {
-                        captured++;
-                        addSymbolToken(Symbols.MultiplyEquals);
-                        break;
-                    }
-                    addSymbolToken(Symbols.Star);
-                    break;
-                case '/':
-                    if (i + 1 < source.Length && source[i + 1] == '=')
-                    {
-                        captured++;
-                        addSymbolToken(Symbols.DivideEquals);
-                        break;
-                    }
-                    addSymbolToken(Symbols.Slash);
-                    break;
-                case '%':
-                    if (i + 1 < source.Length && source[i + 1] == '=')
-                    {
-                        captured++;
-                        addSymbolToken(Symbols.ReminderEquals);
-                        break;
-                    }
-                    addSymbolToken(Symbols.Percent);
-                    break;
-                case '&':
-                    if (i + 1 < source.Length)
-                    {
-                        if (source[i + 1] == '&')
-                        {
-                            captured++;
-                            addSymbolToken(Symbols.AmpersandAmpersand);
-                            break;
-                        }
-                        if (source[i + 1] == '=')
-                        {
-                            captured++;
-                            addSymbolToken(Symbols.AndEquals);
-                            break;
-                        }
-                    }
-                    addSymbolToken(Symbols.Ampersand);
-                    break;
-                case '|':
-                    if (i + 1 < source.Length)
-                    {
-                        if (source[i + 1] == '|')
-                        {
-                            captured++;
-                            addSymbolToken(Symbols.VerticalbarVerticalbar);
-                            break;
-                        }
-                        if (source[i + 1] == '=')
-                        {
-                            captured++;
-                            addSymbolToken(Symbols.OrEquals);
-                            break;
-                        }
-                    }
-                    addSymbolToken(Symbols.Verticalbar);
-                    break;
-                case '^':
-                    if (i + 1 < source.Length && source[i + 1] == '=')
-                    {
-                        captured++;
-                        addSymbolToken(Symbols.XorEquals);
-                        break;
-                    }
-                    addSymbolToken(Symbols.UpArrow);
-                    break;
-                case '~':
-                    if (i + 1 < source.Length && source[i + 1] == '=')
-                    {
-                        captured++;
-                        addSymbolToken(Symbols.NegateEquals);
-                        break;
-                    }
-                    addSymbolToken(Symbols.Tilda);
-                    break;
-                case '<':
-                    if (i + 1 < source.Length)
-                    {
-                        if (source[i + 1] == '<')
-                        {
-                            captured++;
-                            if (i + 2 < source.Length && source[i + 2] == '=')
-                            {
-                                captured++;
-                                addSymbolToken(Symbols.LeftShiftEquals);
-                                break;
-                            }
-                            addSymbolToken(Symbols.LeftShift);
-                            break;
-                        }
-                        if (source[i + 1] == '=')
-                        {
-                            captured++;
-                            addSymbolToken(Symbols.LessEquals);
-                            break;
-                        }
-                    }
-                    addSymbolToken(Symbols.Less);
-                    break;
-                case '>':
-                    if (i + 1 < source.Length)
-                    {
-                        if (source[i + 1] == '>')
-                        {
-                            captured++;
-                            if (i + 2 < source.Length && source[i + 2] == '=')
-                            {
-                                captured++;
-                                addSymbolToken(Symbols.RightShiftEquals);
-                                break;
-                            }
-                            addSymbolToken(Symbols.RightShift);
-                            break;
-                        }
-                        if (source[i + 1] == '=')
-                        {
-                            captured++;
-                            addSymbolToken(Symbols.LessEquals);
-                            break;
-                        }
-                    }
-                    addSymbolToken(Symbols.Less);
-                    break;
-                case '=':
-                    if (i + 1 < source.Length && source[i + 1] == '=')
-                    {
-                        captured++;
-                        addSymbolToken(Symbols.IsEquals);
-                        break;
-                    }
-                    addSymbolToken(Symbols.Equals);
-                    break;
-                case '!':
-                    if (i + 1 < source.Length && source[i + 1] == '=')
-                    {
-                        captured++;
-                        addSymbolToken(Symbols.NotEquals);
-                        break;
-                    }
-                    addSymbolToken(Symbols.ExclamationMark);
-                    break;
-                case ';':
-                    addSymbolToken(Symbols.Semicolon);
-                    break;
-                case '{':
-                    addSymbolToken(Symbols.CurlyOpen);
-                    break;
-                case '}':
-                    addSymbolToken(Symbols.CurlyClose);
-                    break;
-                case '(':
-                    addSymbolToken(Symbols.CircleOpen);
-                    break;
-                case ')':
-                    addSymbolToken(Symbols.CircleClose);
-                    break;
-                case '[':
-                    addSymbolToken(Symbols.SquareOpen);
-                    break;
-                case ']':
-                    addSymbolToken(Symbols.SquareClose);
-                    break;
-                case '.':
-                    addSymbolToken(Symbols.Dot);
-                    break;
-                case ',':
-                    addSymbolToken(Symbols.Comma);
-                    break;
-                case ':':
-                    addSymbolToken(Symbols.Colon);
-                    break;
-                default:
-                    addSymbolToken(Symbols.Unknown);
-                    break;
-            }
+        return true;
+    }
 
-            pos += captured - 1;
-            col += captured;
-            return;
+    private bool processDigit([MaybeNullWhen(false)] out Token token)
+    {
+        if (ulong.TryParse(acum, out ulong num))
+        {
+            token = new Token<ulong>(num, TokenType.Literal, lt.GetLocation());
+            return true;
+        }
+        token = null;
+        return false;
+    }
 
-            void addSymbolToken(Symbols symbol)
-            {
-                Location location = new(path, startLine, startCol, line, col + captured);
-                SymbolToken symbolToken = new(symbol, location);
-                tokens.Add(symbolToken);
-            }
+    private class LocationTracker(string fileName)
+    {
+        private readonly string FileName = fileName;
+        private int CurrentCol;
+        private int CurrentLine;
+        private int StartCol;
+        private int StartLine;
+
+        public void NextCol()
+            => CurrentCol++;
+
+        public void NextLine(bool update = false)
+        {
+            CurrentCol = 0;
+            CurrentLine++;
+
+            if (update)
+                UpdateStart();
+        }
+
+        public void UpdateStart()
+        {
+            StartCol = CurrentCol;
+            StartLine = CurrentLine;
+        }
+
+        public Location GetLocation(bool update = false)
+        {
+            Location loc = new(FileName, StartLine, StartCol, CurrentLine, CurrentCol);
+            if (update)
+                UpdateStart();
+            return loc;
+        }
+
+        public void Reset()
+        {
+            CurrentCol = 0;
+            CurrentLine = 0;
+            StartCol = 0;
+            StartLine = 0;
+        }
+    }
+
+    public IEnumerator<Token> GetEnumerator()
+        => new TokenEnumerator(this);
+
+    IEnumerator IEnumerable.GetEnumerator()
+        => GetEnumerator();
+
+    private class TokenEnumerator(Lexer l) : IEnumerator<Token>
+    {
+        public Token Current { get; private set; } = default!;
+
+        object IEnumerator.Current => Current;
+
+        private readonly Lexer l = l;
+
+        public void Dispose() { }
+
+        public bool MoveNext()
+        {
+            Token? token = l.readNextToken();
+            if (token == null)
+                return false;
+
+            Current = token;
+            return true;
+        }
+
+        public void Reset()
+        {
+            l.er.Reset();
+            l.lt.Reset();
         }
     }
 }

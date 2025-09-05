@@ -1,5 +1,4 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
@@ -10,5 +9,9 @@
   <ItemGroup Condition="'$(Configuration)' == 'Debug'">
     <None Update="test.cml" CopyToOutputDirectory="PreserveNewest" />
     <None Update="test2.cml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="Parsing\**" />
+    <None Remove="Parsing\**" />
   </ItemGroup>
 </Project>

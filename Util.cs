@@ -29,4 +29,61 @@ public static class Util
             yield return (i++, enumerator.Current);
         }
     }
+
+    public static EnumerableReader<T> GetReader<T>(this IEnumerable<T> enumerable)
+        => new(enumerable);
+}
+
+
+public class EnumerableReader<T>
+{
+    private IEnumerator<T> enumerator;
+    private T next;
+    private bool hasValue = false;
+
+    public EnumerableReader(IEnumerable<T> enumerable)
+    {
+        enumerator = enumerable.GetEnumerator();
+        next = default!;
+
+        if (enumerator.MoveNext())
+        {
+            next = enumerator.Current;
+            hasValue = true;
+        }
+    }
+
+    public bool Peek([MaybeNullWhen(false)] out T val)
+    {
+        val = hasValue ? next : default;
+        return hasValue;
+    }
+
+    public bool Read([MaybeNullWhen(false)] out T val)
+    {
+        val = hasValue ? next : default;
+
+        if (enumerator.MoveNext())
+        {
+            next = enumerator.Current;
+            hasValue = true;
+        }
+        else
+            hasValue = false;
+
+        return hasValue;
+    }
+
+    public void Reset()
+    {
+        enumerator.Reset();
+
+        if (enumerator.MoveNext())
+        {
+            next = enumerator.Current;
+            hasValue = true;
+        }
+        else
+            hasValue = false;
+    }
 }

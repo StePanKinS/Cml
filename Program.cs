@@ -1,6 +1,6 @@
 ﻿using Cml;
 using Cml.Lexing;
-using Cml.Parsing;
+// using Cml.Parsing;
 
 string path;
 
@@ -10,28 +10,43 @@ if (args.Length > 0)
 }
 else
 {
-    path = @"test.cml";
+    path = @"test2.cml";
 }
 
-List<Token> tokens = Lexer.Process(path);
 
-foreach ((int i, Token token) in tokens.Enumerate())
+Lexer lexer = new(path);
+
+foreach (var i in lexer)
 {
-    Console.WriteLine($"{i} {token.Location}: {token}");
+    Console.WriteLine($"{i.Location}: {i}");
 }
-NameContext globalContext = new(null);
-globalContext.Add(StructDefinition.Void);
-globalContext.Add(StructDefinition.Char);
-ParsedFile parsedFile = Parser.Process(tokens, globalContext);
 
-// foreach (var import in parsedFile.Imports)
+
+
+
+
+
+
+
+// List<Token> tokens = Lexer.Process(path);
+
+// foreach ((int i, Token token) in tokens.Enumerate())
 // {
-//     Console.WriteLine(import.File);
+//     Console.WriteLine($"{i} {token.Location}: {token}");
 // }
-foreach (var definition in parsedFile.Definitions.Names.Values)
-{
-    Console.WriteLine($"{definition.Name}\t{definition.GetType().Name}");
-}
+// NameContext globalContext = new(null);
+// globalContext.Add(StructDefinition.Void);
+// globalContext.Add(StructDefinition.Char);
+// ParsedFile parsedFile = Parser.Process(tokens, globalContext);
 
-// parsedFile.Definitions.Add(StructDefinition.Void);
-Parser.SetReferences(parsedFile.Definitions);
+// // foreach (var import in parsedFile.Imports)
+// // {
+// //     Console.WriteLine(import.File);
+// // }
+// foreach (var definition in parsedFile.Definitions.Names.Values)
+// {
+//     Console.WriteLine($"{definition.Name}\t{definition.GetType().Name}");
+// }
+
+// // parsedFile.Definitions.Add(StructDefinition.Void);
+// Parser.SetReferences(parsedFile.Definitions);

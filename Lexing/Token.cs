@@ -1,14 +1,15 @@
 namespace Cml.Lexing;
 
-public abstract class Token<T>(T value, Location location) : Token(location)
+public sealed class Token<T>(T value, TokenType type, Location location) : Token(type, location)
 {
     public T Value = value;
 
     public override string ToString()
-        => $"{GetType().Name}({Value})";
+        => $"{Type}({Value})";
 }
 
-public abstract class Token(Location location)
+public class Token(TokenType type, Location location)
 {
+    public TokenType Type = type;
     public Location Location = location;
 }
