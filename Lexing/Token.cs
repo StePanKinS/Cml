@@ -8,7 +8,7 @@ public sealed class Token<T>(T value, TokenType type, Location location) : Token
         => $"{Type}({Value})";
 }
 
-public class Token(TokenType type, Location location)
+public abstract class Token(TokenType type, Location location)
 {
     public TokenType Type = type;
     public Location Location = location;

@@ -21,4 +21,7 @@ public class NamespaceDefinition : Definition
 
     public bool Append(Definition definition)
         => NameContext.Append(definition);
+
+    public static NamespaceDefinition NewGlobal()
+        => new("@global", null, Location.Nowhere);
 }
