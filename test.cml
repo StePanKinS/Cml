@@ -4,18 +4,19 @@ import os;
 
 struct Location
 {
-	char* file;
-	s32 startLine;
-	s32 endLine;
-	s32 startColumn;
-	s32 endColumn
+	char* file,
+	s32 startLine,
+	s32 endLine,
+	s32 startColumn,
+	s32 endColumn,
 }
 
 namespace std {
-	extern void print(char* data);
+	external void print(char* data);
+	external int add(int a, int b);
 }
-extern void* stackAlloc(s32 size);
-extern void intToStr(char* dst, int num);
+external void* stackAlloc(s32 size);
+external void intToStr(char* dst, int num);
 
 
 void main()

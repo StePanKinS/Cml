@@ -1,6 +1,12 @@
 ﻿namespace Cml.Parsing.Definitions;
 
-public class StructDefinition(string name, IEnumerable<(string type, string name)> members, Definition parent, Location location) : Definition(name, parent, location)
+public class StructDefinition(
+    string name,
+    IEnumerable<(string type, string name)> members,
+    Definition parent,
+    Keywords[] modifyers,
+    Location location
+) : Definition(name, parent, modifyers, location)
 {
     public List<StructMember> Members = new(from def in members select
         new StructMember() { Name = def.name, TypeName = def.type, Type = null! });
@@ -17,9 +23,9 @@ public class StructDefinition(string name, IEnumerable<(string type, string name
 
     public static void AddStandartTypes(NamespaceDefinition globalNamespace)
     {
-        globalNamespace.Append(new StructDefinition("void", [], globalNamespace, Location.Nowhere));
-        globalNamespace.Append(new StructDefinition("char", [], globalNamespace, Location.Nowhere));
-        globalNamespace.Append(new StructDefinition("int", [], globalNamespace, Location.Nowhere));
+        globalNamespace.Append(new StructDefinition("void", [], globalNamespace, [], Location.Nowhere));
+        globalNamespace.Append(new StructDefinition("char", [], globalNamespace, [], Location.Nowhere));
+        globalNamespace.Append(new StructDefinition("int", [], globalNamespace, [], Location.Nowhere));
     }
 
     public class StructMember

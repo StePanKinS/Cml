@@ -10,5 +10,6 @@ public enum Keywords
     While,
     For,
     Namespace,
-    Extern,
+    External,
+    Export,
 }

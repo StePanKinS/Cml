@@ -1,52 +1,50 @@
-﻿using Cml;
-using Cml.Lexing;
-// using Cml.Parsing;
+﻿global using Cml.Parsing.Executables;
+global using Cml.Parsing.Definitions;
+global using Cml.Parsing;
+global using Cml.Lexing;
+global using Cml;
 
 string path;
 
 if (args.Length > 0)
-{
     path = args[0];
-}
 else
-{
-    path = @"test2.cml";
-}
+    path = @"test.cml";
 
 
 Lexer lexer = new(path);
 
-foreach (var i in lexer)
+foreach (var (index, value) in lexer.Enumerate())
 {
-    Console.WriteLine($"{i.Location}: {i}");
+    Console.WriteLine($"{index}) {value.Location}: {value}");
+}
+
+var glbNmsp = NamespaceDefinition.NewGlobal();
+ErrorReporter errorer = new();
+
+Parser parser = new(glbNmsp, errorer);
+parser.Parsedefinitions(lexer);
+
+// foreach (var d in glbNmsp)
+// {
+//     Console.WriteLine($"{d.GetType().Name}: {d.Name}");
+// }
+
+printDefs(glbNmsp);
+
+Console.WriteLine($"{errorer.Count} Errors");
+foreach (var e in errorer)
+{
+    Console.WriteLine(e);
 }
 
 
-
-
-
-
-
-
-// List<Token> tokens = Lexer.Process(path);
-
-// foreach ((int i, Token token) in tokens.Enumerate())
-// {
-//     Console.WriteLine($"{i} {token.Location}: {token}");
-// }
-// NameContext globalContext = new(null);
-// globalContext.Add(StructDefinition.Void);
-// globalContext.Add(StructDefinition.Char);
-// ParsedFile parsedFile = Parser.Process(tokens, globalContext);
-
-// // foreach (var import in parsedFile.Imports)
-// // {
-// //     Console.WriteLine(import.File);
-// // }
-// foreach (var definition in parsedFile.Definitions.Names.Values)
-// {
-//     Console.WriteLine($"{definition.Name}\t{definition.GetType().Name}");
-// }
-
-// // parsedFile.Definitions.Add(StructDefinition.Void);
-// Parser.SetReferences(parsedFile.Definitions);
+void printDefs(NamespaceDefinition nmsp)
+{
+    foreach (var d in nmsp)
+    {
+        Console.WriteLine($"{d.GetType().Name}: {d.FullName}");
+        if (d is NamespaceDefinition ns)
+            printDefs(ns);
+    }
+}

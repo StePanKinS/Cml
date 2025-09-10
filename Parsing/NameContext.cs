@@ -1,9 +1,9 @@
+using System.Collections;
 using System.Diagnostics.CodeAnalysis;
-using Cml.Parsing.Definitions;
 
 namespace Cml.Parsing;
 
-public class NameContext(NameContext? parent)
+public class NameContext(NameContext? parent) : IEnumerable<Definition>
 {
     public NameContext? Parent = parent;
     public List<NamespaceDefinition> Namespaces = [];
@@ -63,4 +63,10 @@ public class NameContext(NameContext? parent)
         definition = null;
         return false;
     }
+
+    public IEnumerator<Definition> GetEnumerator()
+        => ((IEnumerable<Definition>)[.. Namespaces, .. Structs, .. Functions, .. Variables]).GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator()
+        => GetEnumerator();
 }

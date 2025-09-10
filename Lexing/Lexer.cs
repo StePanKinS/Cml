@@ -303,7 +303,8 @@ public class Lexer(string fileName) : IEnumerable<Token>
 
         private readonly Lexer l = l;
 
-        public void Dispose() { }
+        public void Dispose()
+            => Reset();
 
         public bool MoveNext()
         {

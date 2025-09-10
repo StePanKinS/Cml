@@ -1,10 +1,12 @@
+using System.Collections;
+
 namespace Cml.Parsing.Definitions;
 
-public class NamespaceDefinition : Definition
+public class NamespaceDefinition : Definition, IEnumerable<Definition>
 {
     public NameContext NameContext;
-    public NamespaceDefinition(string name, Definition? parent, Location location)
-        : base(name, parent!, location)
+    public NamespaceDefinition(string name, Definition? parent, Keywords[] modifyers, Location location)
+        : base(name, parent!, modifyers, location)
     {
         if (parent == null)
             NameContext = new(null);
@@ -23,5 +25,11 @@ public class NamespaceDefinition : Definition
         => NameContext.Append(definition);
 
     public static NamespaceDefinition NewGlobal()
-        => new("@global", null, Location.Nowhere);
+        => new("@global", null, [], Location.Nowhere);
+
+    public IEnumerator<Definition> GetEnumerator()
+        => NameContext.GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator()
+        => GetEnumerator();
 }

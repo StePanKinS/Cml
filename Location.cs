@@ -18,6 +18,8 @@ public class Location(string file, int sLine, int sCol, int eLine, int eCol) {
         end.EndColumn
     ) { }
 
+    public Location(Token start, Token end) : this(start.Location, end.Location) { }
+
     public static readonly Location Nowhere = new(null!, -1, -1, -1, -1);
 
     public override string ToString()

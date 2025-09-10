@@ -2,10 +2,10 @@ using System.Text;
 
 namespace Cml.Parsing.Definitions;
 
-public class Pointer(StructDefinition pointsTo) : StructDefinition(pointsTo.Name + '*', [], null!, Location.Nowhere);
+public class Pointer(StructDefinition pointsTo) : StructDefinition(pointsTo.Name + '*', [], null!, [], Location.Nowhere);
 
 public class FunctionPointer(StructDefinition returnType, StructDefinition[] args)
-    : StructDefinition(getName(returnType, args), [], null!, Location.Nowhere)
+    : StructDefinition(getName(returnType, args), [], null!, [], Location.Nowhere)
 {
     public StructDefinition ReturnType = returnType;
     public StructDefinition[] Args = args;
