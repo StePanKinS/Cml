@@ -10,8 +10,4 @@
     <None Update="test.cml" CopyToOutputDirectory="PreserveNewest" />
     <None Update="test2.cml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
-  <ItemGroup>
-    <Compile Remove="ParsingOld\**" />
-    <None Remove="ParsingOld\**" />
-  </ItemGroup>
 </Project>
