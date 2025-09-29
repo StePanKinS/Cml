@@ -2,18 +2,19 @@
 
 public class FunctionDefinition(
     string name,
-    string retTypeName,
-    (string, string)[] args,
+    Token<string> retTypeName,
+    (Token<string>, Token<string>)[] args,
     Token[] unparsedCode,
     Definition parent,
     Keywords[] modifyers,
     Location location
 ) : Definition(name, parent, modifyers, location)
 {
-    public string ReturnTypeName = retTypeName;
+    public Token<string> ReturnTypeName = retTypeName;
     public StructDefinition ReturnType = null!;
 
-    public (string, string)[] NotypeArgs = args;
+    // TODO: create function argument class
+    public (Token<string> type, Token<string> name)[] NotypeArgs = args;
     public NameContext Args = null!;
     
     public Token[] UnparsedCode = unparsedCode;

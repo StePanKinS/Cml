@@ -9,7 +9,7 @@ public enum BinaryOperationTypes
     Remainder,
     And,
     Or,
-    Equals,
+    Assign,
     IsEquals,
     NotEquals,
     Greater,

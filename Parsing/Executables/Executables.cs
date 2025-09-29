@@ -47,11 +47,25 @@ public record GetMember
     Location Location
 ) : Executable(ReturnType, Location);
 
-public record GetTokenValue
+// public record GetTokenValue
+// (
+//     Token Token,
+//     StructDefinition ReturnType
+// ) : Executable(ReturnType, Token.Location);
+
+public record Identifyer
 (
-    Token Token,
-    StructDefinition ReturnType
-) : Executable(ReturnType, Token.Location);
+    Definition Definition,
+    StructDefinition ReturnType,
+    Location Location
+) : Executable(ReturnType, Location);
+
+public record Literal<T>
+(
+    T Value,
+    StructDefinition ReturnType,
+    Location Location
+) : Executable(ReturnType, Location);
 
 public record ControlFlow
 (
@@ -66,6 +80,12 @@ public record WhileLoop
 (
     Executable Condition,
     Executable Body,
+    StructDefinition ReturnType,
+    Location Location
+) : Executable(ReturnType, Location);
+
+public record Nop
+(
     StructDefinition ReturnType,
     Location Location
 ) : Executable(ReturnType, Location);

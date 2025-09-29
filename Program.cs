@@ -9,7 +9,7 @@ string path;
 if (args.Length > 0)
     path = args[0];
 else
-    path = @"test.cml";
+    path = @"test2.cml";
 
 
 Lexer lexer = new(path);
@@ -20,10 +20,12 @@ foreach (var (index, value) in lexer.Enumerate())
 }
 
 var glbNmsp = NamespaceDefinition.NewGlobal();
+StructDefinition.AddStandartTypes(glbNmsp);
 ErrorReporter errorer = new();
 
 Parser parser = new(glbNmsp, errorer);
-parser.Parsedefinitions(lexer);
+parser.ParseDefinitions(lexer);
+parser.ParseCode();
 
 // foreach (var d in glbNmsp)
 // {

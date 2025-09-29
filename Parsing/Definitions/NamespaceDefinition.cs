@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Cml.Parsing.Definitions;
 
@@ -23,6 +24,12 @@ public class NamespaceDefinition : Definition, IEnumerable<Definition>
 
     public bool Append(Definition definition)
         => NameContext.Append(definition);
+
+    public bool TryGetType(string name, [MaybeNullWhen(false)] out StructDefinition definition)
+        => NameContext.TryGetType(name, out definition);
+
+    public bool TryGetName(string name, [MaybeNullWhen(false)] out Definition definition)
+        => NameContext.TryGetName(name, out definition);
 
     public static NamespaceDefinition NewGlobal()
         => new("@global", null, [], Location.Nowhere);
