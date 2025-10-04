@@ -29,7 +29,7 @@ public class NamespaceDefinition : Definition, IEnumerable<Definition>
         => NameContext.TryGetType(name, out definition);
 
     public bool TryGetName(string name, [MaybeNullWhen(false)] out Definition definition)
-        => NameContext.TryGetName(name, out definition);
+        => NameContext.TryGet(name, out definition);
 
     public static NamespaceDefinition NewGlobal()
         => new("@global", null, [], Location.Nowhere);

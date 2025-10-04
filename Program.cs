@@ -1,7 +1,10 @@
 ﻿global using Cml.Parsing.Executables;
 global using Cml.Parsing.Definitions;
+global using Cml.CodeGenerating;
+global using Cml.NameContexts;
 global using Cml.Parsing;
 global using Cml.Lexing;
+global using Cml.Errors;
 global using Cml;
 
 string path;
@@ -27,10 +30,12 @@ Parser parser = new(glbNmsp, errorer);
 parser.ParseDefinitions(lexer);
 parser.ParseCode();
 
-// foreach (var d in glbNmsp)
-// {
-//     Console.WriteLine($"{d.GetType().Name}: {d.Name}");
-// }
+FasmCodeGen codeGen = new(glbNmsp);
+string code = codeGen.Generate();
+
+StreamWriter sw = new(expandUser("~/test.fasm"));
+sw.Write(code);
+sw.Close();
 
 printDefs(glbNmsp);
 
@@ -50,3 +55,7 @@ void printDefs(NamespaceDefinition nmsp)
             printDefs(ns);
     }
 }
+
+
+string expandUser(string path)
+    => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), path[2..]);

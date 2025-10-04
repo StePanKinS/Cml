@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using System.Text;
 
 namespace Cml.Parsing;
@@ -278,8 +277,15 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             return;
         }
 
+        FunctionDefinition fd = new(
+            funcName.Value,
+            typeName,
+            nmsp,
+            modifyers
+        );
+
         Token t = token;
-        List<(Token<string>, Token<string>)> args = [];
+        FunctionArguments args = new(nmsp.NameContext, fd);
 
         while (true)
         {
@@ -314,7 +320,11 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
             var argName = (Token<string>)token;
 
-            args.Add((argType, argName));
+            if (!args.Append(argType, argName))
+            {
+                errorer.Append($"Function argument with name `{argName.Value}` already exists", argName.Location);
+                return;
+            }
 
             if (!er.Read(out token))
             {
@@ -347,15 +357,10 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
         Location location = new(typeName, body[^1]);
 
-        FunctionDefinition fd = new(
-            funcName.Value,
-            typeName,
-            [.. args],
-            body,
-            nmsp,
-            modifyers,
-            location
-        );
+        fd.Arguments = args;
+        fd.UnparsedCode = body;
+        fd.Location = location;
+
         nmsp.Append(fd);
     }
 
@@ -522,20 +527,15 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         else
             funcDef.ReturnType = type;
 
-        funcDef.Args = new(nmsp.NameContext);
-        foreach (var arg in funcDef.NotypeArgs)
+        foreach (var arg in funcDef.Arguments.Variables)
         {
-            Location loc = new(arg.type, arg.name);
-
-            if (!nmsp.TryGetType(arg.type.Value, out type))
+            if (!nmsp.TryGetType(arg.TypeName!, out type))
             {
-                errorer.Append($"Can not resolve type name `{arg.type.Value}`", arg.type.Location);
+                errorer.Append($"Can not resolve type name `{arg.TypeName}`", arg.Location);
                 continue;
             }
 
-            VariableDefinition varDef = new(arg.name.Value, type, funcDef, [], loc);
-            if (!funcDef.Args.Append(varDef))
-                errorer.Append($"Function argument with name `{varDef.Name}` already exists", arg.name.Location);
+            arg.ValueType = type;
         }
     }
 
@@ -552,15 +552,28 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
     private void parseCode(FunctionDefinition funcDef)
     {
-        if (funcDef.Modifyers.Contains(Keywords.External) ||
-            funcDef.Modifyers.Contains(Keywords.Export))
+        if (funcDef.Modifyers.Contains(Keywords.External)
+            // || funcDef.Modifyers.Contains(Keywords.Export)
+            )
             return;
 
-        funcDef.Code = parseInstruction(funcDef.UnparsedCode, funcDef.Args, funcDef);
+        funcDef.Code = parseInstruction(funcDef.UnparsedCode, funcDef.Arguments, funcDef, out var returnType);
+
+        funcDef.Arguments.TryGetType("void", out var voidType);
+        if (voidType == null)
+            throw new Exception("Type `void` is not defined");
+
+        if (funcDef.ReturnType != voidType && funcDef.ReturnType != returnType)
+            errorer.Append($"Function return type `{funcDef.ReturnType}` does not match actual return type `{returnType}`", funcDef.Location);
     }
 
-    private Executable parseInstruction(Token[] tokens, NameContext nameCtx, FunctionDefinition funcDef)
+    private Executable parseInstruction(Token[] tokens, INameContainer nameCtx, FunctionDefinition funcDef, out StructDefinition returnType)
     {
+        nameCtx.TryGetType("void", out var voidType);
+        if (voidType == null)
+            throw new Exception("Type `void` is not defined");
+        returnType = voidType;
+
         EnumerableReader<Token> er = tokens.GetReader();
         Token? token, t;
         if (!er.Peek(out token))
@@ -568,7 +581,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         if (token is Token<Symbols> symbolToken && symbolToken.Value == Symbols.CurlyOpen)
         {
             List<Executable> code = [];
-            NameContext locals = new(nameCtx);
+            LocalVariables locals = new(nameCtx);
 
             er.Read(out _);
             while (true)
@@ -591,10 +604,13 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     errorer.Append("Empty instruction", loc);
                     continue;
                 }
-                code.Add(parseInstruction(instructionTokens, locals, funcDef));
+                code.Add(parseInstruction(instructionTokens, locals, funcDef, out var innerRT));
+
+                if (innerRT != voidType && returnType == voidType)
+                    returnType = innerRT;
             }
 
-            return new CodeBlock([.. code], locals, funcDef.ReturnType!, new(token!, t!));
+            return new CodeBlock([.. code], locals, returnType, new(token!, t!));
         }
 
         Executable? ret = parseExpression(tokens, nameCtx, funcDef);
@@ -608,7 +624,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         return ret;
     }
 
-    private Executable? parseExpression(Token[] tokens, NameContext nameCtx, FunctionDefinition funcDef)
+    private Executable? parseExpression(Token[] tokens, INameContainer nameCtx, FunctionDefinition funcDef)
         => parseExpression(new Stack<Token>(tokens.Reverse()), nameCtx, funcDef, int.MinValue, false, false);
 
     private static readonly Dictionary<Symbols, UnaryOperationTypes> PrefixOperations = new()
@@ -631,7 +647,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
     private const int PrefixOpBP = 10;
 
-    private Executable? parseExpression(Stack<Token> tokens, NameContext nameCtx, FunctionDefinition funcDef, int minBP, bool expectClosingPrant, bool expectComma)
+    private Executable? parseExpression(Stack<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef, int minBP, bool expectClosingPrant, bool expectComma)
     {
         Token? token, t;
         if (!tokens.TryPop(out token))
@@ -737,10 +753,11 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
     private StructDefinition? getBinaryOpReturnType(BinaryOperationTypes op, StructDefinition left, StructDefinition right)
     {
+        // TODO: 
         return left;
     }
 
-    private Executable? parseFuncCall(Executable lhs, Stack<Token> tokens, NameContext nameCtx, FunctionDefinition funcDef)
+    private Executable? parseFuncCall(Executable lhs, Stack<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef)
     {
         tokens.Pop();
         if (lhs.ReturnType is not FunctionPointer funcPtr)
@@ -770,7 +787,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         return new FunctionCall(lhs, [.. args], funcPtr.ReturnType, loc);
     }
 
-    private bool tryGetImmidiateValue(Token token, Stack<Token> tokens, NameContext nameCtx, FunctionDefinition funcDef, out Executable? executable)
+    private bool tryGetImmidiateValue(Token token, Stack<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef, out Executable? executable)
     {
         executable = null;
         if (token.Type == TokenType.Literal)
@@ -783,7 +800,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
         var ident = (Token<string>)token;
         Definition? def;
-        if (!nameCtx.TryGetName(ident.Value, out def))
+        if (!nameCtx.TryGet(ident.Value, out def))
             return false;
 
         if (def is StructDefinition)
@@ -815,7 +832,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         return true;
     }
 
-    private Executable? parseTypeCast(Stack<Token> tokens, NameContext nameCtx, FunctionDefinition funcDef, bool expectClosingPrant, bool expectComma, StructDefinition type, Location startLoc)
+    private Executable? parseTypeCast(Stack<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef, bool expectClosingPrant, bool expectComma, StructDefinition type, Location startLoc)
     {
         int ptrCnt = 0;
         Token? token;
@@ -851,7 +868,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         return new UnaryOperation(UnaryOperationTypes.Cast, e, type, loc);
     }
 
-    private Executable getLiteralExecutable(Token token, NameContext nameCtx)
+    private Executable getLiteralExecutable(Token token, INameContainer nameCtx)
     {
         StructDefinition? litType = null;
         if (token is Token<char> charToken)

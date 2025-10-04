@@ -1,4 +1,4 @@
-namespace Cml;
+namespace Cml.Errors;
 
 public enum ErrorType
 {

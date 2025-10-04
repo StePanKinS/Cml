@@ -1,4 +1,4 @@
-namespace Cml;
+namespace Cml.Errors;
 
 public record Error(string Message, ErrorType Level, Location Location)
 {

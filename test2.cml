@@ -1,8 +1,7 @@
 
-external void printf(char* str);
+external void stdprint(char* str, int len);
 
-void main()
+export void main()
 {
-    int a = 0;
-    printf("hello world");
+    stdprint("hello world\n", 12);
 }

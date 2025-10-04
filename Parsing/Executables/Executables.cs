@@ -34,7 +34,7 @@ public record FunctionCall
 public record CodeBlock
 (
     Executable[] Code,
-    NameContext Locals,
+    LocalVariables Locals,
     StructDefinition ReturnType,
     Location Location
 ) : Executable(ReturnType, Location);

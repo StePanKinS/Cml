@@ -1,9 +1,9 @@
 using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 
-namespace Cml.Parsing;
+namespace Cml.NameContexts;
 
-public class NameContext(NameContext? parent) : IEnumerable<Definition>
+public class NameContext(NameContext? parent) : IEnumerable<Definition>, INameContainer
 {
     public NameContext? Parent = parent;
     public List<NamespaceDefinition> Namespaces = [];
@@ -42,7 +42,7 @@ public class NameContext(NameContext? parent) : IEnumerable<Definition>
         throw new ArgumentException($"Unexpected type {definition.GetType().FullName} in {nameof(definition)}");
     }
 
-    public bool TryGetName(string name, [MaybeNullWhen(false)] out Definition definition)
+    public bool TryGet(string name, [MaybeNullWhen(false)] out Definition definition)
     {
         var defs = (from def in (IEnumerable<Definition>)[.. Namespaces, .. Structs, .. Functions, .. Variables]
                     where def.Name == name
@@ -57,7 +57,7 @@ public class NameContext(NameContext? parent) : IEnumerable<Definition>
             throw new Exception($"Found several `{name}` names");
 
         if (Parent != null)
-            return Parent.TryGetName(name, out definition);
+            return Parent.TryGet(name, out definition);
 
         definition = null;
         return false;
@@ -94,6 +94,11 @@ public class NameContext(NameContext? parent) : IEnumerable<Definition>
         }
         return true;
     }
+
+    public int GetVariableOffset(VariableDefinition variable)
+        => 0;
+
+    public int Size => 0;
 
     public IEnumerator<Definition> GetEnumerator()
         => ((IEnumerable<Definition>)[.. Namespaces, .. Structs, .. Functions, .. Variables]).GetEnumerator();

@@ -11,6 +11,24 @@ public class StructDefinition(
     public List<StructMember> Members = new(from def in members select
         new StructMember() { Name = def.name, TypeName = def.type, Type = null! });
 
+    protected int size = -1;
+    public int Size
+    {
+        get
+        {
+            if (size != -1)
+                return size;
+
+            size = 0;
+            foreach (var m in Members)
+            {
+                size += m.Type.Size;
+            }
+            size = (size + 7) & ~7; // Align to 8 bytes
+            return size;
+        }
+    }
+
     public StructMember? GetStructMember(string name)
     {
         var mems = (from mem in Members where mem.Name.Value == name select mem).ToArray();
@@ -43,9 +61,9 @@ public class StructDefinition(
 
     public static void AddStandartTypes(NamespaceDefinition globalNamespace)
     {
-        globalNamespace.Append(new StructDefinition("void", [], globalNamespace, [], Location.Nowhere));
-        globalNamespace.Append(new StructDefinition("char", [], globalNamespace, [], Location.Nowhere));
-        globalNamespace.Append(new StructDefinition("int", [], globalNamespace, [], Location.Nowhere));
+        globalNamespace.Append(new StructDefinition("void", [], globalNamespace, [], Location.Nowhere) { size = 0 });
+        globalNamespace.Append(new StructDefinition("char", [], globalNamespace, [], Location.Nowhere) { size = 1 });
+        globalNamespace.Append(new StructDefinition("int", [], globalNamespace, [], Location.Nowhere) { size = 4 });
     }
 
     public static bool operator ==(StructDefinition? sd1, StructDefinition? sd2)

@@ -15,8 +15,8 @@ namespace std {
 	external void print(char* data);
 	external int add(int a, int b);
 }
-external void* stackAlloc(s32 size);
-external void intToStr(char* dst, int num);
+externackAlloc(s32 size);
+external void intTal void* stoStr(char* dst, int num);
 
 
 void main()

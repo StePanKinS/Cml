@@ -2,9 +2,16 @@ using System.Text;
 
 namespace Cml.Parsing.Definitions;
 
-public class Pointer(StructDefinition pointsTo) : StructDefinition(pointsTo.Name + '*', [], null!, [], Location.Nowhere)
+public class Pointer : StructDefinition
 {
-    public StructDefinition PointsTo = pointsTo;
+    public StructDefinition PointsTo;
+
+    public Pointer(StructDefinition pointsTo)
+        : base(pointsTo.Name + '*', [], null!, [], Location.Nowhere)
+    {
+        PointsTo = pointsTo;
+        size = 8;
+    }
 
     public override string ToString()
         => $"Pointer({PointsTo.Name})";
@@ -25,7 +32,7 @@ public class FunctionPointer(StructDefinition returnType, StructDefinition[] arg
     : StructDefinition(getName(returnType, args), [], null!, [], Location.Nowhere)
 {
     public FunctionPointer(FunctionDefinition funcDef)
-        : this(funcDef.ReturnType, funcDef.Args.Variables.Select(a => a.ValueType).ToArray())
+        : this(funcDef.ReturnType, funcDef.Arguments.Variables.Select(a => a.ValueType).ToArray())
     { }
 
     public StructDefinition ReturnType = returnType;

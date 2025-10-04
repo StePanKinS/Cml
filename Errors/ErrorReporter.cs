@@ -1,6 +1,6 @@
 using System.Collections;
 
-namespace Cml;
+namespace Cml.Errors;
 
 public class ErrorReporter : IEnumerable<Error>
 {
