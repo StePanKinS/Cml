@@ -63,7 +63,7 @@ public class StructDefinition(
     {
         globalNamespace.Append(new StructDefinition("void", [], globalNamespace, [], Location.Nowhere) { size = 0 });
         globalNamespace.Append(new StructDefinition("char", [], globalNamespace, [], Location.Nowhere) { size = 1 });
-        globalNamespace.Append(new StructDefinition("int", [], globalNamespace, [], Location.Nowhere) { size = 4 });
+        globalNamespace.Append(new StructDefinition("int", [], globalNamespace, [], Location.Nowhere) { size = 8 });
     }
 
     public static bool operator ==(StructDefinition? sd1, StructDefinition? sd2)

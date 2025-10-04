@@ -93,6 +93,8 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
 
         generateExecutable(fn.Code, fn.Arguments, sb);
 
+        sb.Append("    pop rbp\n");
+        sb.Append("    ret\n");
         sb.Append('\n');
     }
 
@@ -134,7 +136,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
             generateExecutable(c, locals, sb);
 
         sb.Append($"    ; Code block end {cb.Location}\n");
-        sb.Append($"    pop rax\n"); // Expected code block return value on top of the stack
+        // sb.Append($"    pop rax\n"); // Expected code block return value on top of the stack
         sb.Append($"    add rsp, {cb.Locals.Size}\n");
     }
 

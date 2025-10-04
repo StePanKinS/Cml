@@ -6,6 +6,7 @@ global using Cml.Parsing;
 global using Cml.Lexing;
 global using Cml.Errors;
 global using Cml;
+using System.Diagnostics;
 
 string path;
 
@@ -17,10 +18,10 @@ else
 
 Lexer lexer = new(path);
 
-foreach (var (index, value) in lexer.Enumerate())
-{
-    Console.WriteLine($"{index}) {value.Location}: {value}");
-}
+// foreach (var (index, value) in lexer.Enumerate())
+// {
+//     Console.WriteLine($"{index}) {value.Location}: {value}");
+// }
 
 var glbNmsp = NamespaceDefinition.NewGlobal();
 StructDefinition.AddStandartTypes(glbNmsp);
@@ -33,17 +34,19 @@ parser.ParseCode();
 FasmCodeGen codeGen = new(glbNmsp);
 string code = codeGen.Generate();
 
-StreamWriter sw = new(expandUser("~/test.fasm"));
-sw.Write(code);
-sw.Close();
+// StreamWriter sw = new(expandUser("~/test.fasm"));
+// sw.Write(code);
+// sw.Close();
 
-printDefs(glbNmsp);
+// printDefs(glbNmsp);
 
 Console.WriteLine($"{errorer.Count} Errors");
 foreach (var e in errorer)
 {
     Console.WriteLine(e);
 }
+
+postProcess(code);
 
 
 void printDefs(NamespaceDefinition nmsp)
@@ -57,5 +60,43 @@ void printDefs(NamespaceDefinition nmsp)
 }
 
 
-string expandUser(string path)
-    => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), path[2..]);
+// string expandUser(string path)
+//     => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), path[2..]);
+
+void postProcess(string code)
+{
+    StreamWriter sw = new("/tmp/test.asm");
+    sw.Write(code);
+    sw.Close();
+
+    Process.Start(new ProcessStartInfo()
+    {
+        UseShellExecute = false,
+        FileName = "fasm",
+        Arguments = "/tmp/test.asm /tmp/test.o",
+        RedirectStandardOutput = true,
+    })?.WaitForExit();
+    Process.Start(new ProcessStartInfo()
+    {
+        UseShellExecute = false,
+        FileName = "fasm",
+        Arguments = "./CodeGenerating/stdprint.asm /tmp/lib.o",
+        RedirectStandardOutput = true
+    })?.WaitForExit();
+    Process.Start(new ProcessStartInfo()
+    {
+        UseShellExecute = false,
+        FileName = "ld",
+        Arguments = "/tmp/test.o /tmp/lib.o -o /tmp/test",
+        RedirectStandardOutput = true
+    })?.WaitForExit();
+    // var p = Process.Start(new ProcessStartInfo()
+    // {
+    //     UseShellExecute = false,
+    //     FileName = "/tmp/test",
+    //     // Arguments = "./CodeGenerating/stdprint.asm /tmp/lib.o",
+    //     RedirectStandardOutput = true
+    // });
+    // p?.WaitForExit();
+    // Console.WriteLine(p?.StandardOutput.ReadToEnd());
+}
