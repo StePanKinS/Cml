@@ -131,27 +131,52 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
             throw new Exception("Return type size greater than 8 bytes not supported");
 
         sb.Append($"    ; Code block start {cb.Location}\n");
-        sb.Append($"    sub rsp, {cb.Locals.Size + cb.ReturnType.Size}\n"); ;
+        // ensure stack allocation is 16-byte aligned
+        int alloc = Align(cb.Locals.Size + cb.ReturnType.Size, 16);
+        sb.Append($"    sub rsp, {alloc}\n"); ;
         foreach (var c in cb.Code)
             generateExecutable(c, locals, sb);
 
         sb.Append($"    ; Code block end {cb.Location}\n");
         // sb.Append($"    pop rax\n"); // Expected code block return value on top of the stack
-        sb.Append($"    add rsp, {cb.Locals.Size}\n");
+        sb.Append($"    add rsp, {alloc}\n");
     }
 
     private void generateFunctioncall(FunctionCall fc, INameContainer locals, StringBuilder sb)
     {
         sb.Append($"    ; Function call {fc.Location}\n");
-        for (int i = fc.Args.Length - 1; i >= 0; i--)
+        // SysV AMD64 calling convention: first 6 integer/pointer args in registers (rdi,rsi,rdx,rcx,r8,r9),
+        // remaining args pushed on the stack. Evaluate args in the same order as before (last -> first).
+        string[] regs = new[] { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
+        int totalArgs = fc.Args.Length;
+        int stackArgs = Math.Max(0, totalArgs - 6);
+        int stackBytes = stackArgs * 8;
+        // To keep RSP 16-byte aligned at the call, if stackBytes % 16 == 8 we need an extra 8-byte pad.
+        int pad = (stackBytes % 16 == 8) ? 8 : 0;
+        if (pad > 0)
+            sb.Append($"    sub rsp, {pad}    ; call alignment pad\n");
+
+        for (int i = totalArgs - 1; i >= 0; i--)
         {
-            if (generateExecutable(fc.Args[i], locals, sb) == 0)
+            if (generateExecutable(fc.Args[i], locals, sb) != 0)
+                throw new Exception("Error in argument evaluation");
+
+            if (i < 6)
+            {
+                sb.Append($"    mov {regs[i]}, rax\n");
+            }
+            else
+            {
                 sb.Append("    push rax\n");
+            }
         }
+
         if (generateExecutable(fc.FunctionPointer, locals, sb) != 0)
             throw new Exception("Error in function pointer calculation");
         sb.Append("    call rax\n");
-        sb.Append($"    add rsp, {fc.Args.Sum(a => a.ReturnType.Size)}\n");
+        // clean up pushed stack arguments and any padding
+        if (stackBytes + pad > 0)
+            sb.Append($"    add rsp, {stackBytes + pad}\n");
     }
 
     private int generateIdentifyer(Identifyer id, INameContainer locals, StringBuilder sb)
@@ -178,5 +203,11 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         else
             throw new Exception("Identifyer definition is not a variable or function");
         return 0;
+    }
+
+    private static int Align(int value, int align)
+    {
+        if (align <= 0) return value;
+        return (value + align - 1) / align * align;
     }
 }

@@ -1,7 +1,7 @@
 
-external void stdprint(char* str, int len);
+external int printf(char* fmt);
 
 export void main()
 {
-    stdprint("hello world\n", 12);
+    printf("hello world\n");
 }

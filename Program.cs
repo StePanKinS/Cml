@@ -72,22 +72,22 @@ void postProcess(string code)
     Process.Start(new ProcessStartInfo()
     {
         UseShellExecute = false,
-        FileName = "fasm",
+        FileName = "./fasm/fasm",
         Arguments = "/tmp/test.asm /tmp/test.o",
         RedirectStandardOutput = true,
     })?.WaitForExit();
+    // Process.Start(new ProcessStartInfo()
+    // {
+    //     UseShellExecute = false,
+    //     FileName = "fasm",
+    //     Arguments = "./CodeGenerating/stdprint.asm /tmp/lib.o",
+    //     RedirectStandardOutput = true
+    // })?.WaitForExit();
     Process.Start(new ProcessStartInfo()
     {
         UseShellExecute = false,
-        FileName = "fasm",
-        Arguments = "./CodeGenerating/stdprint.asm /tmp/lib.o",
-        RedirectStandardOutput = true
-    })?.WaitForExit();
-    Process.Start(new ProcessStartInfo()
-    {
-        UseShellExecute = false,
-        FileName = "ld",
-        Arguments = "/tmp/test.o /tmp/lib.o -o /tmp/test",
+        FileName = "gcc",
+        Arguments = "/tmp/test.o -o test -no-pie",
         RedirectStandardOutput = true
     })?.WaitForExit();
     // var p = Process.Start(new ProcessStartInfo()
