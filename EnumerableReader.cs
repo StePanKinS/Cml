@@ -38,6 +38,15 @@ public class EnumerableReader<T>
         return hasValue;
     }
 
+    public bool Read()
+    {
+        if (enumerator.MoveNext())
+            next = enumerator.Current;
+        else
+            hasValue = false;
+        return hasValue;
+    }
+
     public void Reset()
     {
         enumerator.Reset();

@@ -560,48 +560,42 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             // || funcDef.Modifyers.Contains(Keywords.Export)
             )
             return;
+        EnumerableReader<Token> er = funcDef.UnparsedCode.GetReader();
+        funcDef.Code = parseInstruction(er, funcDef.Arguments, funcDef, out var returnType);
 
-        funcDef.Code = parseInstruction(funcDef.UnparsedCode, funcDef.Arguments, funcDef, out var returnType);
+        if (er.Read())
+            throw new Exception("Not all code is parsed");
 
         if (funcDef.ReturnType != DefaultTypes.Void && funcDef.ReturnType != returnType)
             errorer.Append($"Function return type `{funcDef.ReturnType.FullName}` does not match actual return type `{returnType?.FullName}`", funcDef.Location);
     }
 
-    private Executable parseInstruction(Token[] tokens, INameContainer nameCtx, FunctionDefinition funcDef, out StructDefinition? returnType)
+    private Executable parseInstruction(EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef, out StructDefinition? returnType)
     {
         returnType = null;
 
-        EnumerableReader<Token> er = tokens.GetReader();
         Token? token, t;
-        if (!er.Peek(out token))
+        if (!tokens.Peek(out token))
             throw new Exception("Empty instruction");
         if (token is Token<Symbols> symbolToken && symbolToken.Value == Symbols.CurlyOpen)
         {
             List<Executable> code = [];
             LocalVariables locals = new(nameCtx);
 
-            er.Read(out _);
+            tokens.Read();
             while (true)
             {
-                if (!er.Peek(out t))
+                if (!tokens.Peek(out t))
                 {
                     errorer.Append("Code block isnt closed", t!.Location);
                     break;
                 }
                 if (t is Token<Symbols> symToken && symToken.Value == Symbols.CurlyClose)
                 {
-                    er.Read(out _);
+                    tokens.Read();
                     break;
                 }
-                Token[] instructionTokens = readUntilSymbol(er, Symbols.Semicolon);
-                er.Read(out t);
-                if (instructionTokens.Length == 0)
-                {
-                    Location loc = new(token, t!);
-                    errorer.Append("Empty instruction", loc);
-                    continue;
-                }
-                code.Add(parseInstruction(instructionTokens, locals, funcDef, out var innerRT));
+                code.Add(parseInstruction(tokens, locals, funcDef, out var innerRT));
 
                 if (innerRT != null && returnType == null)
                     returnType = innerRT;
@@ -609,40 +603,43 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
             return new CodeBlock([.. code], locals, new(token!, t!));
         }
-        else if (token is Token<Keywords> kwdToken){
+        else if (token is Token<Keywords> kwdToken)
+        {
+            tokens.Read();
+
             if (kwdToken.Value == Keywords.Return)
             {
-                var ts = tokens[1..];
                 Nop nop = new(kwdToken.Location);
                 returnType = DefaultTypes.Void;
 
-                if (ts.Length == 0)
-                    return new Return(nop, kwdToken.Location);
-
-                Executable? e = parseExpression(ts, nameCtx, funcDef);
+                Executable? e = parseExpression(tokens, nameCtx, funcDef);
                 if (e == null)
                 {
-                    errorer.Append("Can not parse expression", new Location(tokens[0], tokens[^1]));
+                    errorer.Append("Can not parse expression", kwdToken.Location);
                     return new Return(nop, kwdToken.Location);
                 }
 
                 returnType = e.ReturnType;
                 return new Return(e, new Location(kwdToken.Location, e.Location));
             }
+
+            errorer.Append($"Unexpected keyword `{kwdToken.Value}`", kwdToken.Location);
+            return new Nop(kwdToken.Location);
         }
 
         Executable? ret = parseExpression(tokens, nameCtx, funcDef);
         if (ret == null)
         {
-            Location location = new(tokens[0], tokens[^1]);
+            tokens.Peek(out t);
+            Location location = new(token, t!);
             ret = new Nop(location);
             errorer.Append("Can not parse expression", location);
         }
         return ret;
     }
 
-    private Executable? parseExpression(Token[] tokens, INameContainer nameCtx, FunctionDefinition funcDef)
-        => parseExpression(new Stack<Token>(tokens.Reverse()), nameCtx, funcDef, int.MinValue, false, false);
+    private Executable? parseExpression(EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef)
+        => parseExpression(tokens, nameCtx, funcDef, int.MinValue, false, false, true);
 
     private static readonly Dictionary<Symbols, UnaryOperationTypes> PrefixOperations = new()
     {
@@ -664,15 +661,23 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
     private const int PrefixOpBP = 10;
 
-    private Executable? parseExpression(Stack<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef, int minBP, bool expectClosingPrant, bool expectComma)
+    private Executable? parseExpression(
+        EnumerableReader<Token> tokens,
+        INameContainer nameCtx,
+        FunctionDefinition funcDef,
+        int minBP,
+        bool expectClosingPrant,
+        bool expectComma,
+        bool expectSemicolon
+        )
     {
         Token? token, t;
-        if (!tokens.TryPop(out token))
+        if (!tokens.Read(out token))
             return null;
 
         Executable? lhs = null;
 
-        if (tryGetImmidiateValue(token, tokens, nameCtx, funcDef, out lhs))
+        if (tryGetImmidiateValue(token, tokens, nameCtx, funcDef, expectSemicolon, out lhs))
         {
             if (lhs == null)
                 return null;
@@ -682,18 +687,18 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             var symbolToken = (Token<Symbols>)token;
             if (symbolToken.Value == Symbols.CircleOpen)
             {
-                if (!tokens.TryPeek(out t))
+                if (!tokens.Peek(out t))
                     return null;
                 if (t.Type == TokenType.Identifier &&
                     nameCtx.TryGetType(((Token<string>)t).Value, out var castType))
                 {
-                    tokens.Pop();
-                    lhs = parseTypeCast(tokens, nameCtx, funcDef, expectClosingPrant, expectComma, castType, symbolToken.Location);
+                    tokens.Read();
+                    lhs = parseTypeCast(tokens, nameCtx, funcDef, expectClosingPrant, expectComma, expectSemicolon, castType, symbolToken.Location);
                 }
                 else
                 {
-                    lhs = parseExpression(tokens, nameCtx, funcDef, int.MinValue, true, false);
-                    if (!tokens.TryPop(out t) || t.Type != TokenType.Symbol || ((Token<Symbols>)t).Value != Symbols.CircleClose)
+                    lhs = parseExpression(tokens, nameCtx, funcDef, int.MinValue, true, false, false);
+                    if (!tokens.Read(out t) || t.Type != TokenType.Symbol || ((Token<Symbols>)t).Value != Symbols.CircleClose)
                     {
                         // errorer.Append("Expected `)`", loc);
                         return null;
@@ -701,7 +706,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 }
             }
             else if (PrefixOperations.ContainsKey(symbolToken.Value))
-                lhs = parseExpression(tokens, nameCtx, funcDef, PrefixOpBP, expectClosingPrant, expectComma);
+                lhs = parseExpression(tokens, nameCtx, funcDef, PrefixOpBP, expectClosingPrant, expectComma, expectSemicolon);
             else
                 return null;
         }
@@ -711,7 +716,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
         while (true)
         {
-            if (!tokens.TryPeek(out token))
+            if (!tokens.Peek(out token))
                 return lhs;
             if (token.Type != TokenType.Symbol)
                 return null;
@@ -741,8 +746,8 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 var (leftBP, rightBP) = BinaryOpBPs[op];
                 if (leftBP <= minBP)
                     return lhs;
-                tokens.Pop();
-                Executable? rhs = parseExpression(tokens, nameCtx, funcDef, rightBP, expectClosingPrant,expectComma);
+                tokens.Read();
+                Executable? rhs = parseExpression(tokens, nameCtx, funcDef, rightBP, expectClosingPrant, expectComma, expectSemicolon);
                 if (rhs == null)
                     return null;
 
@@ -755,12 +760,14 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             }
             else if (expectClosingPrant && symbolToken.Value == Symbols.CircleClose)
             {
-                // tokens.Pop();
+                // tokens.Read();
                 return lhs;
             }
-            else if (expectComma && symbolToken.Value == Symbols.Comma)
+            else if (expectComma && symbolToken.Value == Symbols.Comma
+                || expectSemicolon && symbolToken.Value == Symbols.Semicolon
+                )
             {
-                tokens.Pop();
+                tokens.Read();
                 return lhs;
             }
             else
@@ -774,9 +781,9 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         return left;
     }
 
-    private Executable? parseFuncCall(Executable lhs, Stack<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef)
+    private Executable? parseFuncCall(Executable lhs, EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef)
     {
-        tokens.Pop();
+        tokens.Read();
         if (lhs.ReturnType is not FunctionPointer funcPtr)
         {
             // errorer.Append("Can not call non-function value", lhs.Location);
@@ -786,15 +793,15 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         List<Executable> args = [];
         while (true)
         {
-            if (!tokens.TryPeek(out var token))
+            if (!tokens.Peek(out var token))
                 return null;
             if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleClose)
             {
                 loc = new(loc, token.Location);
-                tokens.Pop();
+                tokens.Read();
                 break;
             }
-            Executable? e = parseExpression(tokens, nameCtx, funcDef, 0, true, true);
+            Executable? e = parseExpression(tokens, nameCtx, funcDef, 0, true, true, false);
             if (args.Count == funcPtr.Args.Length)
                 return null;
             if (e == null || e.ReturnType != funcPtr.Args[args.Count])
@@ -804,12 +811,20 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         return new FunctionCall(lhs, [.. args], funcPtr.ReturnType, loc);
     }
 
-    private bool tryGetImmidiateValue(Token token, Stack<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef, out Executable? executable)
+    private bool tryGetImmidiateValue(Token token, EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef, bool expectSemicolon, out Executable? executable)
     {
         executable = null;
+        if (expectSemicolon
+            && token.Type == TokenType.Symbol
+            && ((Token<Symbols>)token).Value == Symbols.Semicolon
+            )
+        {
+            executable = new Nop(token.Location);
+            return true;
+        }
         if (token.Type == TokenType.Literal)
         {
-            executable = getLiteralExecutable(token, nameCtx);
+            executable = getLiteralExecutable(token);
             return true;
         }
         if (token.Type != TokenType.Identifier)
@@ -824,7 +839,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         {
             Location location = token.Location;
             nameCtx.TryGetType(((Token<string>)token).Value, out var type);
-            if (!tokens.TryPop(out token!))
+            if (!tokens.Read(out token!))
                 return true;
             if (token.Type != TokenType.Identifier)
                 return true;
@@ -849,14 +864,23 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         return true;
     }
 
-    private Executable? parseTypeCast(Stack<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef, bool expectClosingPrant, bool expectComma, StructDefinition type, Location startLoc)
+    private Executable? parseTypeCast(
+        EnumerableReader<Token> tokens,
+        INameContainer nameCtx,
+        FunctionDefinition funcDef,
+        bool expectClosingPrant,
+        bool expectComma,
+        bool expectSemicolon,
+        StructDefinition type,
+        Location startLoc
+        )
     {
         int ptrCnt = 0;
         Token? token;
 
         while (true)
         {
-            if (!tokens.TryPop(out token))
+            if (!tokens.Read(out token))
                 return null;
             if (token is Token<Symbols> symbolToken)
             {
@@ -877,7 +901,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             type = new Pointer(type);
         }
 
-        Executable? e = parseExpression(tokens, nameCtx, funcDef, PrefixOpBP, expectClosingPrant, expectComma);
+        Executable? e = parseExpression(tokens, nameCtx, funcDef, PrefixOpBP, expectClosingPrant, expectComma, expectSemicolon);
         if (e == null)
             return null;
         Location loc = new(startLoc, e.Location);
@@ -885,7 +909,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         return new UnaryOperation(UnaryOperationTypes.Cast, e, type, loc);
     }
 
-    private Executable getLiteralExecutable(Token token, INameContainer nameCtx)
+    private Executable getLiteralExecutable(Token token)
     {
         StructDefinition? litType;
         if (token is Token<char> charToken)
