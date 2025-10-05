@@ -72,47 +72,46 @@ public class Lexer(string fileName) : IEnumerable<Token>
         }
     }
 
+    private static Dictionary<char, Symbols> singleSymbols = new()
+    {
+        { '(', Symbols.CircleOpen  },
+        { ')', Symbols.CircleClose },
+        { '{', Symbols.CurlyOpen   },
+        { '}', Symbols.CurlyClose  },
+        { '[', Symbols.SquareOpen  },
+        { ']', Symbols.SquareClose },
+        { ';', Symbols.Semicolon   },
+        { ',', Symbols.Comma       },
+        { '=', Symbols.Equals      },
+        { '<', Symbols.Less        },
+        { '>', Symbols.Greater     },
+        { '+', Symbols.Plus        },
+        { '-', Symbols.Minus       },
+        { '*', Symbols.Star        },
+        { '/', Symbols.Slash       },
+        { '%', Symbols.Percent     },
+    };
+
+    private static Dictionary<(char, char), Symbols> doubleSymbols = new()
+    {
+        { ('=', '='), Symbols.IsEquals      },
+        { ('<', '='), Symbols.LessEquals    },
+        { ('>', '='), Symbols.GreaterEquals },
+    };
+
     private Token readSymbol()
     {
         er.Read(out char c);
+        er.Peek(out char d);
         Symbols symbol = Symbols.Unknown;
 
-        switch (c)
+        if (doubleSymbols.TryGetValue((c, d), out Symbols value))
         {
-            case '(':
-                symbol = Symbols.CircleOpen;
-                break;
-            case ')':
-                symbol = Symbols.CircleClose;
-                break;
-            case '{':
-                symbol = Symbols.CurlyOpen;
-                break;
-            case '}':
-                symbol = Symbols.CurlyClose;
-                break;
-            case '[':
-                symbol = Symbols.SquareOpen;
-                break;
-            case ']':
-                symbol = Symbols.SquareClose;
-                break;
-            case ';':
-                symbol = Symbols.Semicolon;
-                break;
-            case ',':
-                symbol = Symbols.Comma;
-                break;
-            case '*':
-                symbol = Symbols.Star;
-                break;
-            case '=':
-                if (er.Read(out c) && c == '=')
-                    symbol = Symbols.IsEquals;
-                else
-                    symbol = Symbols.Equals;
-                break;
+            symbol = value;
+            er.Read();
         }
+        else if (singleSymbols.TryGetValue(c, out value))
+            symbol = value;
 
         if (symbol == Symbols.Unknown)
             return new Token<string>("Unknown symbol", TokenType.Unknown, lt.GetLocation());

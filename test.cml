@@ -1,80 +1,22 @@
-import math;
-import io;
-import os;
 
-struct Location
+external printf(char* fmt);
+
+int main()
 {
-	char* file,
-	s32 startLine,
-	s32 endLine,
-	s32 startColumn,
-	s32 endColumn,
-}
-
-namespace std {
-	external void print(char* data);
-	external int add(int a, int b);
-}
-externackAlloc(s32 size);
-external void intTal void* stoStr(char* dst, int num);
-
-
-void main()
-{
-	std.print("Hello world!!!\n\n\n\n");
-
-	Location nowhere = {
-		file = (char*)0,
-		startLine = -1,
-		endLine = -1,
-		startColumn = -1,
-		endColumn = -1,
-	};
-
-	printLocation(&nowhere);
-
-	setExitCode(1);
-}
-
-s32 printLocation(Location* loc)
-{
-	char* str = stackAlloc(sizeof(char) * 1000);
 	int i = 0;
-	if (loc.file) {
-		i += strLen(file);
-		memCopy(str, file, i, 0);
+	int c;
+	while (i < 10) {
+		c = 0;
+		c = c | i + 48;
+		printf((char*)&c);
+		printf(": ");
+		if (i % 3 == 0)
+			printf("bar\n");
+		else if (i % 5 == 0)
+			printf("baz\n");
+		else
+			printf("sad smile\n");
 	}
-	intToStr(loc.startLine, str + i);
-	i += strLen(str + i);
 
-	str[i] = ':';
-	i++;
-	
-	intToStr(loc.startColumn, str + i);
-	i += strLen(str + i);
-
-	str[i] = '-';
-	i++;
-	
-	intToStr(loc.endLine, str + i);
-	i += strLen(str + i);
-
-	str[i] = ':';
-	i++;
-	
-	intToStr(loc.endColumn, str + i);
-	i += strLen(str + i);
-
-	std.print(str);
-	std.print("\n");
-
-
-	return 0;
-}
-
-int strLen(char* str) {
-	int len;
-	len = -1;
-	while(str[++len]);
-	retturn len;
+	return 228;
 }

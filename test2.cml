@@ -3,6 +3,16 @@ external int printf(char* fmt);
 
 export int main()
 {
-    printf("hello world\n");
+    int i = 0;
+    while (i < 10) {
+        printf("hello world\n");
+        i = i + 1;
+    }
+
+    if (0)
+        printf("How???!");
+    else
+        printf("Based");
+    
     return 69;
 }
