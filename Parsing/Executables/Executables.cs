@@ -35,9 +35,8 @@ public record CodeBlock
 (
     Executable[] Code,
     LocalVariables Locals,
-    StructDefinition ReturnType,
     Location Location
-) : Executable(ReturnType, Location);
+) : Executable(DefaultTypes.Void, Location);
 
 public record GetMember
 (
@@ -72,26 +71,23 @@ public record ControlFlow
     Executable Condition,
     Executable Body,
     Executable? ElseBody,
-    StructDefinition ReturnType,
     Location Location
-) : Executable(ReturnType, Location);
+) : Executable(DefaultTypes.Void, Location);
 
 public record WhileLoop
 (
     Executable Condition,
     Executable Body,
-    StructDefinition ReturnType,
     Location Location
-) : Executable(ReturnType, Location);
+) : Executable(DefaultTypes.Void, Location);
 
 public record Return
 (
     Executable Value,
     Location Location
-) : Executable(Value.ReturnType, Location);
+) : Executable(DefaultTypes.Void, Location);
 
 public record Nop
 (
-    StructDefinition ReturnType,
     Location Location
-) : Executable(ReturnType, Location);
+) : Executable(DefaultTypes.Void, Location);

@@ -477,6 +477,10 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
     public void ParseCode()
     {
         setReferences(globalNamespace);
+
+        if (errorer.Count != 0)
+            return;
+
         parseCode(globalNamespace);
     }
 
@@ -559,19 +563,12 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
         funcDef.Code = parseInstruction(funcDef.UnparsedCode, funcDef.Arguments, funcDef, out var returnType);
 
-        funcDef.Arguments.TryGetType("void", out var voidType);
-        if (voidType == null)
-            throw new Exception("Type `void` is not defined");
-
-        if (funcDef.ReturnType != voidType && funcDef.ReturnType != returnType)
+        if (funcDef.ReturnType != DefaultTypes.Void && funcDef.ReturnType != returnType)
             errorer.Append($"Function return type `{funcDef.ReturnType.FullName}` does not match actual return type `{returnType?.FullName}`", funcDef.Location);
     }
 
     private Executable parseInstruction(Token[] tokens, INameContainer nameCtx, FunctionDefinition funcDef, out StructDefinition? returnType)
     {
-        nameCtx.TryGetType("void", out var voidType);
-        if (voidType == null)
-            throw new Exception("Type `void` is not defined");
         returnType = null;
 
         EnumerableReader<Token> er = tokens.GetReader();
@@ -610,14 +607,14 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     returnType = innerRT;
             }
 
-            return new CodeBlock([.. code], locals, voidType, new(token!, t!));
+            return new CodeBlock([.. code], locals, new(token!, t!));
         }
         else if (token is Token<Keywords> kwdToken){
             if (kwdToken.Value == Keywords.Return)
             {
                 var ts = tokens[1..];
-                Nop nop = new(voidType, kwdToken.Location);
-                returnType = voidType;
+                Nop nop = new(kwdToken.Location);
+                returnType = DefaultTypes.Void;
 
                 if (ts.Length == 0)
                     return new Return(nop, kwdToken.Location);
@@ -637,9 +634,8 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         Executable? ret = parseExpression(tokens, nameCtx, funcDef);
         if (ret == null)
         {
-            nameCtx.TryGetType("void", out var vd);
             Location location = new(tokens[0], tokens[^1]);
-            ret = new Nop(vd!, location);
+            ret = new Nop(location);
             errorer.Append("Can not parse expression", location);
         }
         return ret;
@@ -891,22 +887,19 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
     private Executable getLiteralExecutable(Token token, INameContainer nameCtx)
     {
-        StructDefinition? litType = null;
+        StructDefinition? litType;
         if (token is Token<char> charToken)
         {
-            nameCtx.TryGetType("char", out litType);
-            return new Literal<char>(charToken.Value, litType!, token.Location);
+            return new Literal<char>(charToken.Value, DefaultTypes.Char, token.Location);
         }
         else if (token is Token<string> stringToken)
         {
-            nameCtx.TryGetType("char", out litType);
-            litType = new Pointer(litType!);
+            litType = new Pointer(DefaultTypes.Char);
             return new Literal<string>(stringToken.Value, litType!, token.Location);
         }
         else if (token is Token<ulong> intToken)
         {
-            nameCtx.TryGetType("int", out litType);
-            return new Literal<ulong>(intToken.Value, litType!, token.Location);
+            return new Literal<ulong>(intToken.Value, DefaultTypes.Int, token.Location);
         }
 
         throw new Exception($"Unknown literal type {token}");

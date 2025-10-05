@@ -61,9 +61,9 @@ public class StructDefinition(
 
     public static void AddStandartTypes(NamespaceDefinition globalNamespace)
     {
-        globalNamespace.Append(new StructDefinition("void", [], globalNamespace, [], Location.Nowhere) { size = 0 });
-        globalNamespace.Append(new StructDefinition("char", [], globalNamespace, [], Location.Nowhere) { size = 1 });
-        globalNamespace.Append(new StructDefinition("int", [], globalNamespace, [], Location.Nowhere) { size = 8 });
+        globalNamespace.Append(DefaultTypes.Void);
+        globalNamespace.Append(DefaultTypes.Char);
+        globalNamespace.Append(DefaultTypes.Int);
     }
 
     public static bool operator ==(StructDefinition? sd1, StructDefinition? sd2)
