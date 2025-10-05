@@ -84,6 +84,12 @@ public record WhileLoop
     Location Location
 ) : Executable(ReturnType, Location);
 
+public record Return
+(
+    Executable Value,
+    Location Location
+) : Executable(Value.ReturnType, Location);
+
 public record Nop
 (
     StructDefinition ReturnType,

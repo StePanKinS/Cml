@@ -67,9 +67,9 @@ public class StructDefinition(
     }
 
     public static bool operator ==(StructDefinition? sd1, StructDefinition? sd2)
-        => sd1?.Equals(sd2) ?? false;
+        => (sd1 is null && sd2 is null) || (sd1?.Equals(sd2) ?? false);
     public static bool operator !=(StructDefinition? sd1, StructDefinition? sd2)
-        => !(sd1?.Equals(sd2) ?? false);
+        => !((sd1 is null && sd2 is null) || (sd1?.Equals(sd2) ?? false));
 
     public class StructMember
     {

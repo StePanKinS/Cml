@@ -31,20 +31,19 @@ Parser parser = new(glbNmsp, errorer);
 parser.ParseDefinitions(lexer);
 parser.ParseCode();
 
+if (errorer.Count != 0)
+{
+    Console.WriteLine($"{errorer.Count} Errors");
+    foreach (var e in errorer)
+    {
+        Console.WriteLine(e);
+    }
+    
+    return;
+}
+
 FasmCodeGen codeGen = new(glbNmsp);
 string code = codeGen.Generate();
-
-// StreamWriter sw = new(expandUser("~/test.fasm"));
-// sw.Write(code);
-// sw.Close();
-
-// printDefs(glbNmsp);
-
-Console.WriteLine($"{errorer.Count} Errors");
-foreach (var e in errorer)
-{
-    Console.WriteLine(e);
-}
 
 postProcess(code);
 
@@ -72,7 +71,7 @@ void postProcess(string code)
     Process.Start(new ProcessStartInfo()
     {
         UseShellExecute = false,
-        FileName = "./fasm/fasm",
+        FileName = "fasm",
         Arguments = "/tmp/test.asm /tmp/test.o",
         RedirectStandardOutput = true,
     })?.WaitForExit();
@@ -87,16 +86,7 @@ void postProcess(string code)
     {
         UseShellExecute = false,
         FileName = "gcc",
-        Arguments = "/tmp/test.o -o test -no-pie",
+        Arguments = "/tmp/test.o -o /tmp/test -no-pie",
         RedirectStandardOutput = true
     })?.WaitForExit();
-    // var p = Process.Start(new ProcessStartInfo()
-    // {
-    //     UseShellExecute = false,
-    //     FileName = "/tmp/test",
-    //     // Arguments = "./CodeGenerating/stdprint.asm /tmp/lib.o",
-    //     RedirectStandardOutput = true
-    // });
-    // p?.WaitForExit();
-    // Console.WriteLine(p?.StandardOutput.ReadToEnd());
 }

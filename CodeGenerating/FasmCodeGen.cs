@@ -93,6 +93,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
 
         generateExecutable(fn.Code, fn.Arguments, sb);
 
+        sb.Append("    mov rsp, rbp\n");
         sb.Append("    pop rbp\n");
         sb.Append("    ret\n");
         sb.Append('\n');
@@ -119,6 +120,14 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
             case Literal<ulong> intLit:
                 sb.Append($"    ; Integer literal {intLit.Location}\n");
                 sb.Append($"    mov rax, {intLit.Value}\n");
+                return 0;
+            case Return ret:
+                sb.Append($"    ; return {ret.Location}\n");
+                generateExecutable(ret.Value, locals, sb);
+                sb.Append($"    ; return end {ret.Location}\n");
+                sb.Append($"    mov rsp, rbp\n");
+                sb.Append($"    pop rbp\n");
+                sb.Append($"    ret\n");
                 return 0;
             default:
                 throw new NotImplementedException($"Code generation for {exe.GetType().Name} not implemented");

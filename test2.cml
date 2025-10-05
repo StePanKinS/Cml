@@ -1,7 +1,8 @@
 
 external int printf(char* fmt);
 
-export void main()
+export int main()
 {
     printf("hello world\n");
+    return 0;
 }

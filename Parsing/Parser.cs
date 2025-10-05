@@ -564,15 +564,15 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             throw new Exception("Type `void` is not defined");
 
         if (funcDef.ReturnType != voidType && funcDef.ReturnType != returnType)
-            errorer.Append($"Function return type `{funcDef.ReturnType}` does not match actual return type `{returnType}`", funcDef.Location);
+            errorer.Append($"Function return type `{funcDef.ReturnType.FullName}` does not match actual return type `{returnType?.FullName}`", funcDef.Location);
     }
 
-    private Executable parseInstruction(Token[] tokens, INameContainer nameCtx, FunctionDefinition funcDef, out StructDefinition returnType)
+    private Executable parseInstruction(Token[] tokens, INameContainer nameCtx, FunctionDefinition funcDef, out StructDefinition? returnType)
     {
         nameCtx.TryGetType("void", out var voidType);
         if (voidType == null)
             throw new Exception("Type `void` is not defined");
-        returnType = voidType;
+        returnType = null;
 
         EnumerableReader<Token> er = tokens.GetReader();
         Token? token, t;
@@ -606,11 +606,32 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 }
                 code.Add(parseInstruction(instructionTokens, locals, funcDef, out var innerRT));
 
-                if (innerRT != voidType && returnType == voidType)
+                if (innerRT != null && returnType == null)
                     returnType = innerRT;
             }
 
-            return new CodeBlock([.. code], locals, returnType, new(token!, t!));
+            return new CodeBlock([.. code], locals, voidType, new(token!, t!));
+        }
+        else if (token is Token<Keywords> kwdToken){
+            if (kwdToken.Value == Keywords.Return)
+            {
+                var ts = tokens[1..];
+                Nop nop = new(voidType, kwdToken.Location);
+                returnType = voidType;
+
+                if (ts.Length == 0)
+                    return new Return(nop, kwdToken.Location);
+
+                Executable? e = parseExpression(ts, nameCtx, funcDef);
+                if (e == null)
+                {
+                    errorer.Append("Can not parse expression", new Location(tokens[0], tokens[^1]));
+                    return new Return(nop, kwdToken.Location);
+                }
+
+                returnType = e.ReturnType;
+                return new Return(e, new Location(kwdToken.Location, e.Location));
+            }
         }
 
         Executable? ret = parseExpression(tokens, nameCtx, funcDef);
