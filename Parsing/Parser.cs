@@ -636,6 +636,9 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     errorer.Append("Con not parse condition", kwdToken.Location);
                     cond = new Nop(kwdToken.Location);
                 }
+                if (cond.ReturnType != DefaultTypes.Bool)
+                    errorer.Append($"Expected bool type, not {cond.ReturnType}", cond.Location);
+                    
                 tokens.Read();
 
                 Executable body = parseInstruction(tokens, nameCtx, funcDef, out var _);
@@ -659,6 +662,10 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 {
                     errorer.Append("Con not parse condition", kwdToken.Location);
                     cond = new Nop(kwdToken.Location);
+                }
+                if (cond.ReturnType != DefaultTypes.Bool)
+                {
+                    errorer.Append($"Expected bool type, not {cond.ReturnType}", cond.Location);
                 }
                 tokens.Read();
 
@@ -845,11 +852,16 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 returnType = varDef.ValueType;
                 break;
             case BinaryOperationTypes.Add:
-            case BinaryOperationTypes.Less:
                 if (left.ReturnType != DefaultTypes.Int
                     || right.ReturnType != DefaultTypes.Int)
                     return null;
                 returnType = DefaultTypes.Int;
+                break;
+            case BinaryOperationTypes.Less:
+                if (left.ReturnType != DefaultTypes.Int
+                    || right.ReturnType != DefaultTypes.Int)
+                    return null;
+                returnType = DefaultTypes.Bool;
                 break;
             default:
                 return null;
@@ -1001,6 +1013,8 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         {
             return new Literal<ulong>(intToken.Value, DefaultTypes.Int, token.Location);
         }
+        else if (token is Token<bool> boolToken)
+            return new Literal<bool>(boolToken.Value, DefaultTypes.Bool, token.Location);
 
         throw new Exception($"Unknown literal type {token}");
     }

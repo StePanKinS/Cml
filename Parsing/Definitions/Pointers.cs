@@ -47,7 +47,8 @@ public class FunctionPointer(StructDefinition returnType, StructDefinition[] arg
             sb.Append(args[i].Name);
             sb.Append(',');
         }
-        sb.Append(args[^1].Name);
+        if (args.Length > 0)
+            sb.Append(args[^1].Name);
         sb.Append(')');
         return sb.ToString();
     }

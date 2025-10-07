@@ -16,6 +16,7 @@ else
     path = @"test2.cml";
 
 
+
 Lexer lexer = new(path);
 
 // foreach (var (index, value) in lexer.Enumerate())

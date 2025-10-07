@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace Cml.CodeGenerating;
@@ -6,6 +7,8 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
 {
     private NamespaceDefinition globalNamespace = globalNamespace;
     private List<string> strings = [];
+    private int if_counter = 0;
+    private int while_counter = 0;
 
     public string Generate()
         => topLevel();
@@ -121,6 +124,12 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 sb.Append($"    ; Integer literal {intLit.Location}\n");
                 sb.Append($"    mov rax, {intLit.Value}\n");
                 return 0;
+            case Literal<bool> boolLit:
+                sb.Append($"        ; Bool literal {boolLit.Location}");
+                sb.Append($"    mov rax, {boolLit.Value.CompareTo(false)}");
+                return 0;
+            case BinaryOperation bo:
+                return generateBinaryOp(bo, locals, sb);
             case Return ret:
                 sb.Append($"    ; return {ret.Location}\n");
                 generateExecutable(ret.Value, locals, sb);
@@ -129,8 +138,78 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 sb.Append($"    pop rbp\n");
                 sb.Append($"    ret\n");
                 return 0;
+            case ControlFlow cf:
+                int ifNum = if_counter++;
+                sb.Append($"    ; if {cf.Location}\n");
+                if (generateExecutable(cf.Condition, locals, sb) != 0)
+                    throw new Exception("wtf bool is bool not in rax");
+
+                sb.Append($"    test rax, rax\n");
+                sb.Append($"    jz else_{ifNum}\n");
+                generateExecutable(cf.Body, locals, sb);
+                sb.Append($"    jmp if_end_{ifNum}\n");
+                sb.Append($"else_{ifNum}:\n");
+                if (cf.ElseBody != null)
+                    generateExecutable(cf.ElseBody, locals, sb);
+
+                sb.Append($"if_end_{ifNum}:\n");
+                return 0;
+            case WhileLoop wl:
+                int whileNum = while_counter++;
+                sb.Append($"    ; while loop {wl.Location}\n");
+                sb.Append($"while_{whileNum}:\n");
+                if (generateExecutable(wl.Condition, locals, sb) != 0)
+                    throw new Exception("wtf bool is bool not in rax");
+                
+                sb.Append($"    test rax, rax\n");
+                sb.Append($"    jz while_end_{whileNum}\n");
+                generateExecutable(wl.Body, locals, sb);
+                sb.Append($"    jmp while_{whileNum}\n");
+                sb.Append($"while_end_{whileNum}:\n");
+                return 0;
             default:
                 throw new NotImplementedException($"Code generation for {exe.GetType().Name} not implemented");
+        }
+    }
+
+    private int generateBinaryOp(BinaryOperation bo, INameContainer locals, StringBuilder sb)
+    {
+        switch (bo.OperationType)
+        {
+            case BinaryOperationTypes.Assign:
+                sb.Append($"    ; Assign {bo.Location}\n");
+                if (generateExecutable(bo.Right, locals, sb) != 0)
+                    throw new Exception("Structs are not supported");
+                if (bo.Left is Identifyer id && id.Definition is VariableDefinition variable)
+                {
+                    int offset = locals.GetVariableOffset(variable);
+                    if (offset == 0)
+                        sb.Append($"    mov [{variable.FullName}], rax\n");
+                    else
+                        sb.Append($"    mov [rbp {offset:+ 0;- 0}], rax\n");
+                }
+                return 0;
+            case BinaryOperationTypes.Add:
+                sb.Append($"        ; Add {bo.Location}\n");
+                generateExecutable(bo.Left, locals, sb);
+                sb.Append($"    push rax\n");
+                generateExecutable(bo.Right, locals, sb);
+                sb.Append($"    pop rbx\n");
+                sb.Append($"    add rax, rbx\n");
+                return 0;
+            case BinaryOperationTypes.Less:
+                sb.Append($"        ; Less {bo.Location}");
+                generateExecutable(bo.Right, locals, sb);
+                sb.Append($"    push rax\n");
+                generateExecutable(bo.Left, locals, sb);
+                sb.Append($"    pop rcx\n");
+                sb.Append($"    xor rax, rax\n");
+                sb.Append($"    mov rdx, 1\n");
+                sb.Append($"    sub rbx, rcx\n");
+                sb.Append($"    cmovl rax, rdx\n");
+                return 0;
+            default:
+                throw new NotImplementedException($"Binary operation {bo.OperationType} not implemented");
         }
     }
 
@@ -144,7 +223,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         int alloc = Align(cb.Locals.Size + cb.ReturnType.Size, 16);
         sb.Append($"    sub rsp, {alloc}\n"); ;
         foreach (var c in cb.Code)
-            generateExecutable(c, locals, sb);
+            generateExecutable(c, cb.Locals, sb);
 
         sb.Append($"    ; Code block end {cb.Location}\n");
         // sb.Append($"    pop rax\n"); // Expected code block return value on top of the stack

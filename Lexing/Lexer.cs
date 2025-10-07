@@ -221,7 +221,10 @@ public class Lexer(string fileName) : IEnumerable<Token>
         }
         else if (Enum.TryParse<Keywords>(acum, true, out var result))
         {
-            token = new Token<Keywords>(result, TokenType.Keyword, lt.GetLocation());
+            if (result == Keywords.True || result == Keywords.False)
+                token = new Token<bool>(result == Keywords.True, TokenType.Literal, lt.GetLocation());
+            else
+                token = new Token<Keywords>(result, TokenType.Keyword, lt.GetLocation());
         }
         else
         {

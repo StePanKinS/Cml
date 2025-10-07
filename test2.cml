@@ -1,18 +1,24 @@
 
 external int printf(char* fmt);
 
+int bruh()
+{
+    printf("returning 00000\n");
+    return 0;
+}
+
 export int main()
 {
-    int i = 0;
+    int i = bruh();
     while (i < 10) {
         printf("hello world\n");
         i = i + 1;
     }
 
-    if (0)
-        printf("How???!");
+    if (5 < 10)
+        printf("How???!\n");
     else
-        printf("Based");
+        printf("Based\n");
     
     return 69;
 }
