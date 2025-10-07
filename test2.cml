@@ -10,12 +10,12 @@ int bruh()
 export int main()
 {
     int i = bruh();
-    while (i < 10) {
+    while (i >= 0) {
         printf("hello world\n");
         i = i + 1;
     }
 
-    if (5 < 10)
+    if (11 < 10)
         printf("How???!\n");
     else
         printf("Based\n");

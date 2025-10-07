@@ -75,20 +75,20 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
     {
         if (fn.Modifyers.Contains(Keywords.External))
         {
-            sb.Append($"; External function {fn.FullName}\n");
+            sb.Append($"    ; External function {fn.FullName}\n");
             sb.Append($"extrn {fn.Name}\n\n");
             return;
         }
         if (fn.Modifyers.Contains(Keywords.Export))
         {
-            sb.Append($"; Exported function {fn.FullName}\n");
+            sb.Append($"    ; Exported function {fn.FullName}\n");
             sb.Append($"public {fn.Name}\n\n");
         }
         if (fn.Code == null)
             throw new Exception($"Function {fn.FullName} has no code");
 
 
-        sb.Append($"; Function {fn.FullName}\n");
+        sb.Append($"    ; Function {fn.FullName}\n");
         sb.Append($"{fn.FullName}:\n");
 
         sb.Append("    push rbp\n");
@@ -115,13 +115,13 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
             case Identifyer id:
                 return generateIdentifyer(id, locals, sb);
             case Literal<string> stringLit:
-                sb.Append($"    ; String literal {stringLit.Location}\n");
+                sb.Append($"        ; String literal {stringLit.Location}\n");
                 int count = strings.Count;
                 strings.Add(stringLit.Value);
                 sb.Append($"    lea rax, [str{count}]\n");
                 return 0;
             case Literal<ulong> intLit:
-                sb.Append($"    ; Integer literal {intLit.Location}\n");
+                sb.Append($"        ; Integer literal {intLit.Location}\n");
                 sb.Append($"    mov rax, {intLit.Value}\n");
                 return 0;
             case Literal<bool> boolLit:
@@ -131,16 +131,16 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
             case BinaryOperation bo:
                 return generateBinaryOp(bo, locals, sb);
             case Return ret:
-                sb.Append($"    ; return {ret.Location}\n");
+                sb.Append($"        ; return {ret.Location}\n");
                 generateExecutable(ret.Value, locals, sb);
-                sb.Append($"    ; return end {ret.Location}\n");
+                sb.Append($"        ; return end {ret.Location}\n");
                 sb.Append($"    mov rsp, rbp\n");
                 sb.Append($"    pop rbp\n");
                 sb.Append($"    ret\n");
                 return 0;
             case ControlFlow cf:
                 int ifNum = if_counter++;
-                sb.Append($"    ; if {cf.Location}\n");
+                sb.Append($"        ; if {cf.Location}\n");
                 if (generateExecutable(cf.Condition, locals, sb) != 0)
                     throw new Exception("wtf bool is bool not in rax");
 
@@ -156,7 +156,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 return 0;
             case WhileLoop wl:
                 int whileNum = while_counter++;
-                sb.Append($"    ; while loop {wl.Location}\n");
+                sb.Append($"        ; while loop {wl.Location}\n");
                 sb.Append($"while_{whileNum}:\n");
                 if (generateExecutable(wl.Condition, locals, sb) != 0)
                     throw new Exception("wtf bool is bool not in rax");
@@ -172,12 +172,22 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         }
     }
 
+    private static readonly Dictionary<BinaryOperationTypes, string> compareOps = new()
+    {
+        { BinaryOperationTypes.Less,          "l"  },
+        { BinaryOperationTypes.LessEquals,    "le" },
+        { BinaryOperationTypes.Greater,       "g"  },
+        { BinaryOperationTypes.GreaterEquals, "ge" },
+        { BinaryOperationTypes.IsEquals,      "e"  },
+        { BinaryOperationTypes.NotEquals,     "ne" },
+    };
+
     private int generateBinaryOp(BinaryOperation bo, INameContainer locals, StringBuilder sb)
     {
         switch (bo.OperationType)
         {
             case BinaryOperationTypes.Assign:
-                sb.Append($"    ; Assign {bo.Location}\n");
+                sb.Append($"        ; Assign {bo.Location}\n");
                 if (generateExecutable(bo.Right, locals, sb) != 0)
                     throw new Exception("Structs are not supported");
                 if (bo.Left is Identifyer id && id.Definition is VariableDefinition variable)
@@ -197,16 +207,24 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 sb.Append($"    pop rbx\n");
                 sb.Append($"    add rax, rbx\n");
                 return 0;
+
             case BinaryOperationTypes.Less:
-                sb.Append($"        ; Less {bo.Location}");
+            case BinaryOperationTypes.LessEquals:
+            case BinaryOperationTypes.Greater:
+            case BinaryOperationTypes.GreaterEquals:
+            case BinaryOperationTypes.IsEquals:
+            case BinaryOperationTypes.NotEquals:
+                sb.Append($"        ; Less {bo.Location}\n");
                 generateExecutable(bo.Right, locals, sb);
                 sb.Append($"    push rax\n");
                 generateExecutable(bo.Left, locals, sb);
                 sb.Append($"    pop rcx\n");
+                sb.Append($"    mov rbx, rax\n");
                 sb.Append($"    xor rax, rax\n");
                 sb.Append($"    mov rdx, 1\n");
                 sb.Append($"    sub rbx, rcx\n");
-                sb.Append($"    cmovl rax, rdx\n");
+                string op = compareOps[bo.OperationType];
+                sb.Append($"    cmov{op} rax, rdx\n");
                 return 0;
             default:
                 throw new NotImplementedException($"Binary operation {bo.OperationType} not implemented");
@@ -218,21 +236,21 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         if (cb.ReturnType.Size > 8)
             throw new Exception("Return type size greater than 8 bytes not supported");
 
-        sb.Append($"    ; Code block start {cb.Location}\n");
+        sb.Append($"        ; Code block start {cb.Location}\n");
         // ensure stack allocation is 16-byte aligned
         int alloc = Align(cb.Locals.Size + cb.ReturnType.Size, 16);
         sb.Append($"    sub rsp, {alloc}\n"); ;
         foreach (var c in cb.Code)
             generateExecutable(c, cb.Locals, sb);
 
-        sb.Append($"    ; Code block end {cb.Location}\n");
+        sb.Append($"        ; Code block end {cb.Location}\n");
         // sb.Append($"    pop rax\n"); // Expected code block return value on top of the stack
         sb.Append($"    add rsp, {alloc}\n");
     }
 
     private void generateFunctioncall(FunctionCall fc, INameContainer locals, StringBuilder sb)
     {
-        sb.Append($"    ; Function call {fc.Location}\n");
+        sb.Append($"        ; Function call {fc.Location}\n");
         // SysV AMD64 calling convention: first 6 integer/pointer args in registers (rdi,rsi,rdx,rcx,r8,r9),
         // remaining args pushed on the stack. Evaluate args in the same order as before (last -> first).
         string[] regs = new[] { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
@@ -269,7 +287,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
 
     private int generateIdentifyer(Identifyer id, INameContainer locals, StringBuilder sb)
     {
-        sb.Append($"    ; Identifyer {id.Location}\n");
+        sb.Append($"        ; Identifyer {id.Location}\n");
         if (id.Definition is VariableDefinition varDef)
         {
             if (varDef.ValueType.Size > 8)

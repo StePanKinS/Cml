@@ -719,16 +719,26 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
     private static readonly Dictionary<Symbols, BinaryOperationTypes> BinaryOperations = new()
     {
-        { Symbols.Equals, BinaryOperationTypes.Assign },
-        { Symbols.Less,   BinaryOperationTypes.Less   },
-        { Symbols.Plus,   BinaryOperationTypes.Add    },
+        { Symbols.Equals,        BinaryOperationTypes.Assign        },
+        { Symbols.Plus,          BinaryOperationTypes.Add           },
+        { Symbols.IsEquals,      BinaryOperationTypes.IsEquals      },
+        { Symbols.NotEquals,     BinaryOperationTypes.NotEquals     },
+        { Symbols.Less,          BinaryOperationTypes.Less          },
+        { Symbols.LessEquals,    BinaryOperationTypes.LessEquals    },
+        { Symbols.Greater,       BinaryOperationTypes.Greater       },
+        { Symbols.GreaterEquals, BinaryOperationTypes.GreaterEquals },
     };
 
     private static readonly Dictionary<BinaryOperationTypes, (int left, int right)> BinaryOpBPs = new()
     {
-        { BinaryOperationTypes.Assign, (1,  0)  },
-        { BinaryOperationTypes.Less,   (14, 15) },
-        { BinaryOperationTypes.Add,    (20, 21) },
+        { BinaryOperationTypes.Assign,        (1,  0)  },
+        { BinaryOperationTypes.Add,           (20, 21) },
+        { BinaryOperationTypes.IsEquals,      (12, 13) },
+        { BinaryOperationTypes.NotEquals,     (12, 13) },
+        { BinaryOperationTypes.Less,          (14, 15) },
+        { BinaryOperationTypes.LessEquals,    (14, 15) },
+        { BinaryOperationTypes.Greater,       (14, 15) },
+        { BinaryOperationTypes.GreaterEquals, (14, 15) },
     };
 
     private const int PrefixOpBP = 10;
@@ -858,6 +868,11 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 returnType = DefaultTypes.Int;
                 break;
             case BinaryOperationTypes.Less:
+            case BinaryOperationTypes.LessEquals:
+            case BinaryOperationTypes.Greater:
+            case BinaryOperationTypes.GreaterEquals:
+            case BinaryOperationTypes.IsEquals:
+            case BinaryOperationTypes.NotEquals:
                 if (left.ReturnType != DefaultTypes.Int
                     || right.ReturnType != DefaultTypes.Int)
                     return null;
