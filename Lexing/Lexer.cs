@@ -74,29 +74,48 @@ public class Lexer(string fileName) : IEnumerable<Token>
 
     private static Dictionary<char, Symbols> singleSymbols = new()
     {
-        { '(', Symbols.CircleOpen  },
-        { ')', Symbols.CircleClose },
-        { '{', Symbols.CurlyOpen   },
-        { '}', Symbols.CurlyClose  },
-        { '[', Symbols.SquareOpen  },
-        { ']', Symbols.SquareClose },
-        { ';', Symbols.Semicolon   },
-        { ',', Symbols.Comma       },
-        { '=', Symbols.Equals      },
-        { '<', Symbols.Less        },
-        { '>', Symbols.Greater     },
-        { '+', Symbols.Plus        },
-        { '-', Symbols.Minus       },
-        { '*', Symbols.Star        },
-        { '/', Symbols.Slash       },
-        { '%', Symbols.Percent     },
+        { '(', Symbols.CircleOpen      },
+        { ')', Symbols.CircleClose     },
+        { '{', Symbols.CurlyOpen       },
+        { '}', Symbols.CurlyClose      },
+        { '[', Symbols.SquareOpen      },
+        { ']', Symbols.SquareClose     },
+  
+        { ';', Symbols.Semicolon       },
+        { ',', Symbols.Comma           },
+  
+        { '=', Symbols.Equals          },
+  
+        { '|', Symbols.Verticalbar     },
+        { '^', Symbols.VerticalArrow   },
+        { '&', Symbols.Ampersand       },
+  
+        { '<', Symbols.Less            },
+        { '>', Symbols.Greater         },
+  
+        { '+', Symbols.Plus            },
+        { '-', Symbols.Minus           },
+  
+        { '*', Symbols.Star            },
+        { '/', Symbols.Slash           },
+        { '%', Symbols.Percent         },
+
+        { '!', Symbols.ExclamationMark },
     };
 
     private static Dictionary<(char, char), Symbols> doubleSymbols = new()
     {
-        { ('=', '='), Symbols.IsEquals      },
-        { ('<', '='), Symbols.LessEquals    },
-        { ('>', '='), Symbols.GreaterEquals },
+        { ('|', '|'), Symbols.VerticalbarVerticalbar },
+        { ('&', '&'), Symbols.AmpersandAmpersand     },
+
+        { ('=', '='), Symbols.IsEquals               },
+        { ('!', '='), Symbols.NotEquals              },
+
+        { ('<', '='), Symbols.LessEquals             },
+        { ('>', '='), Symbols.GreaterEquals          },
+        
+        { ('<', '<'), Symbols.LeftShift              },
+        { ('>', '>'), Symbols.RightShift             },
     };
 
     private Token readSymbol()

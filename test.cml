@@ -1,5 +1,5 @@
 
-external printf(char* fmt);
+external void printf(char* fmt);
 
 int main()
 {

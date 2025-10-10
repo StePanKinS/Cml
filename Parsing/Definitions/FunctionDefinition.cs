@@ -6,7 +6,7 @@ public class FunctionDefinition(
     // Token[] unparsedCode,
     Definition parent,
     Keywords[] modifyers
-    // Location location
+// Location location
 ) : Definition(name, parent, modifyers, Location.Nowhere)
 {
     public Token<string> ReturnTypeName = retTypeName;
@@ -16,4 +16,6 @@ public class FunctionDefinition(
 
     public Token[] UnparsedCode = null!;
     public Executable? Code = null;
+
+    public bool ContainsReturn = false;
 }

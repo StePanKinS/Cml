@@ -566,6 +566,8 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         if (er.Read())
             throw new Exception("Not all code is parsed");
 
+        funcDef.ContainsReturn = returnType != null;
+
         if (funcDef.ReturnType != DefaultTypes.Void && funcDef.ReturnType != returnType)
             errorer.Append($"Function return type `{funcDef.ReturnType.FullName}` does not match actual return type `{returnType?.FullName}`", funcDef.Location);
     }
@@ -719,29 +721,65 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
     private static readonly Dictionary<Symbols, BinaryOperationTypes> BinaryOperations = new()
     {
-        { Symbols.Equals,        BinaryOperationTypes.Assign        },
-        { Symbols.Plus,          BinaryOperationTypes.Add           },
-        { Symbols.IsEquals,      BinaryOperationTypes.IsEquals      },
-        { Symbols.NotEquals,     BinaryOperationTypes.NotEquals     },
-        { Symbols.Less,          BinaryOperationTypes.Less          },
-        { Symbols.LessEquals,    BinaryOperationTypes.LessEquals    },
-        { Symbols.Greater,       BinaryOperationTypes.Greater       },
-        { Symbols.GreaterEquals, BinaryOperationTypes.GreaterEquals },
+        { Symbols.Equals,                 BinaryOperationTypes.Assign        },
+   
+        { Symbols.VerticalbarVerticalbar, BinaryOperationTypes.LogicalOr     },
+        { Symbols.AmpersandAmpersand,     BinaryOperationTypes.LogicalAnd    },
+   
+        { Symbols.Verticalbar,            BinaryOperationTypes.BitwiseOr     },
+        { Symbols.VerticalArrow,          BinaryOperationTypes.BitwiseXor    },
+        { Symbols.Ampersand,              BinaryOperationTypes.BitwiseAnd    },
+
+        { Symbols.IsEquals,               BinaryOperationTypes.IsEquals      },
+        { Symbols.NotEquals,              BinaryOperationTypes.NotEquals     },
+         
+        { Symbols.Less,                   BinaryOperationTypes.Less          },
+        { Symbols.LessEquals,             BinaryOperationTypes.LessEquals    },
+        { Symbols.Greater,                BinaryOperationTypes.Greater       },
+        { Symbols.GreaterEquals,          BinaryOperationTypes.GreaterEquals },
+
+        { Symbols.RightShift,             BinaryOperationTypes.RightShift    },
+        { Symbols.LeftShift,              BinaryOperationTypes.LeftShift     },
+         
+        { Symbols.Plus,                   BinaryOperationTypes.Add           },
+        { Symbols.Minus,                  BinaryOperationTypes.Subtract      },
+
+        { Symbols.Slash,                  BinaryOperationTypes.Divide        },
+        { Symbols.Percent,                BinaryOperationTypes.Remainder     },
+        { Symbols.Star,                   BinaryOperationTypes.Multiply      },
     };
 
     private static readonly Dictionary<BinaryOperationTypes, (int left, int right)> BinaryOpBPs = new()
     {
-        { BinaryOperationTypes.Assign,        (1,  0)  },
-        { BinaryOperationTypes.Add,           (20, 21) },
+        { BinaryOperationTypes.Assign,        (1,   0) },
+   
+        { BinaryOperationTypes.LogicalOr,     (2,   3) },
+        { BinaryOperationTypes.LogicalAnd,    (4,   5) },
+   
+        { BinaryOperationTypes.BitwiseOr,     (6,   7) },
+        { BinaryOperationTypes.BitwiseXor,    (8,   9) },
+        { BinaryOperationTypes.BitwiseAnd,    (10, 11) },
+
         { BinaryOperationTypes.IsEquals,      (12, 13) },
         { BinaryOperationTypes.NotEquals,     (12, 13) },
+         
         { BinaryOperationTypes.Less,          (14, 15) },
         { BinaryOperationTypes.LessEquals,    (14, 15) },
         { BinaryOperationTypes.Greater,       (14, 15) },
         { BinaryOperationTypes.GreaterEquals, (14, 15) },
+
+        { BinaryOperationTypes.RightShift,    (16, 17) },
+        { BinaryOperationTypes.LeftShift,     (16, 17) },
+
+        { BinaryOperationTypes.Add,           (20, 21) },
+        { BinaryOperationTypes.Subtract,      (20, 21) },
+
+        { BinaryOperationTypes.Divide,        (22, 23) },
+        { BinaryOperationTypes.Remainder,     (22, 23) },
+        { BinaryOperationTypes.Multiply,      (22, 23) },
     };
 
-    private const int PrefixOpBP = 10;
+    private const int PrefixOpBP = 100;
 
     private Executable? parseExpression(
         EnumerableReader<Token> tokens,
@@ -788,8 +826,13 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     }
                 }
             }
-            else if (PrefixOperations.ContainsKey(symbolToken.Value))
-                lhs = parseExpression(tokens, nameCtx, funcDef, PrefixOpBP, expectClosingPrant, expectComma, expectSemicolon, false);
+            else if (PrefixOperations.TryGetValue(symbolToken.Value, out UnaryOperationTypes value))
+            {
+                Executable? rhs = parseExpression(tokens, nameCtx, funcDef, PrefixOpBP, expectClosingPrant, expectComma, expectSemicolon, false);
+                if (rhs == null)
+                    return null;
+                lhs = new UnaryOperation(value, rhs, rhs.ReturnType, new Location(symbolToken.Location, rhs.Location));
+            }
             else
                 return null;
         }
@@ -862,6 +905,12 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 returnType = varDef.ValueType;
                 break;
             case BinaryOperationTypes.Add:
+            case BinaryOperationTypes.Subtract:
+            case BinaryOperationTypes.Multiply:
+            case BinaryOperationTypes.Divide:
+            case BinaryOperationTypes.Remainder:
+            case BinaryOperationTypes.BitwiseOr:
+            case BinaryOperationTypes.BitwiseAnd:
                 if (left.ReturnType != DefaultTypes.Int
                     || right.ReturnType != DefaultTypes.Int)
                     return null;
@@ -879,7 +928,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 returnType = DefaultTypes.Bool;
                 break;
             default:
-                return null;
+                throw new Exception($"Binary operation {op} not implemented in verifyBinaryOperation");
         }
         return new BinaryOperation(op, left, right, returnType, new Location(left.Location, right.Location));
     }
@@ -992,7 +1041,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     ptrCnt++;
                     continue;
                 }
-                if (symbolToken.Value != Symbols.CurlyClose)
+                if (symbolToken.Value != Symbols.CircleClose)
                     return null;
                 break;
             }

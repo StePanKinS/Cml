@@ -5,7 +5,6 @@ global using Cml.NameContexts;
 global using Cml.Parsing;
 global using Cml.Lexing;
 global using Cml.Errors;
-global using Cml;
 using System.Diagnostics;
 
 string path;
@@ -13,7 +12,7 @@ string path;
 if (args.Length > 0)
     path = args[0];
 else
-    path = @"test2.cml";
+    path = @"test.cml";
 
 
 

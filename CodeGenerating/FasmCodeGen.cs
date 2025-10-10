@@ -96,9 +96,12 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
 
         generateExecutable(fn.Code, fn.Arguments, sb);
 
-        sb.Append("    mov rsp, rbp\n");
-        sb.Append("    pop rbp\n");
-        sb.Append("    ret\n");
+        if (!fn.ContainsReturn)
+        {
+            sb.Append("    mov rsp, rbp\n");
+            sb.Append("    pop rbp\n");
+            sb.Append("    ret\n");
+        }
         sb.Append('\n');
     }
 
