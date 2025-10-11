@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Runtime.Serialization;
 using System.Text;
 
 namespace Cml.CodeGenerating;
@@ -112,27 +113,37 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
             case CodeBlock cb:
                 generateCodeBlock(cb, locals, sb);
                 return 0;
+
             case FunctionCall fc:
                 generateFunctioncall(fc, locals, sb);
                 return 0;
+
             case Identifyer id:
                 return generateIdentifyer(id, locals, sb);
+
             case Literal<string> stringLit:
                 sb.Append($"        ; String literal {stringLit.Location}\n");
                 int count = strings.Count;
                 strings.Add(stringLit.Value);
                 sb.Append($"    lea rax, [str{count}]\n");
                 return 0;
+
             case Literal<ulong> intLit:
                 sb.Append($"        ; Integer literal {intLit.Location}\n");
                 sb.Append($"    mov rax, {intLit.Value}\n");
                 return 0;
+
             case Literal<bool> boolLit:
                 sb.Append($"        ; Bool literal {boolLit.Location}");
                 sb.Append($"    mov rax, {boolLit.Value.CompareTo(false)}");
                 return 0;
+
             case BinaryOperation bo:
                 return generateBinaryOp(bo, locals, sb);
+
+            case UnaryOperation uo:
+                return generateUnaryOP(uo, locals, sb);
+
             case Return ret:
                 sb.Append($"        ; return {ret.Location}\n");
                 generateExecutable(ret.Value, locals, sb);
@@ -141,6 +152,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 sb.Append($"    pop rbp\n");
                 sb.Append($"    ret\n");
                 return 0;
+
             case ControlFlow cf:
                 int ifNum = if_counter++;
                 sb.Append($"        ; if {cf.Location}\n");
@@ -157,6 +169,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
 
                 sb.Append($"if_end_{ifNum}:\n");
                 return 0;
+
             case WhileLoop wl:
                 int whileNum = while_counter++;
                 sb.Append($"        ; while loop {wl.Location}\n");
@@ -170,6 +183,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 sb.Append($"    jmp while_{whileNum}\n");
                 sb.Append($"while_end_{whileNum}:\n");
                 return 0;
+
             default:
                 throw new NotImplementedException($"Code generation for {exe.GetType().Name} not implemented");
         }
@@ -183,6 +197,18 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         { BinaryOperationTypes.GreaterEquals, "ge" },
         { BinaryOperationTypes.IsEquals,      "e"  },
         { BinaryOperationTypes.NotEquals,     "ne" },
+    };
+
+    private static readonly Dictionary<BinaryOperationTypes, string> mathOps = new()
+    {
+        { BinaryOperationTypes.Add,        "add"  },
+        { BinaryOperationTypes.Subtract,   "sub"  },
+        { BinaryOperationTypes.Multiply,   "imul" },
+        { BinaryOperationTypes.BitwiseAnd, "and"  },
+        { BinaryOperationTypes.BitwiseOr,  "or"   },
+        { BinaryOperationTypes.BitwiseXor, "xor"  },
+        { BinaryOperationTypes.LeftShift,  "shl"  },
+        { BinaryOperationTypes.RightShift, "shr"  },
     };
 
     private int generateBinaryOp(BinaryOperation bo, INameContainer locals, StringBuilder sb)
@@ -202,11 +228,19 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                         sb.Append($"    mov [rbp {offset:+ 0;- 0}], rax\n");
                 }
                 return 0;
+
             case BinaryOperationTypes.Add:
-                sb.Append($"        ; Add {bo.Location}\n");
-                generateExecutable(bo.Left, locals, sb);
-                sb.Append($"    push rax\n");
+            case BinaryOperationTypes.Subtract:
+            case BinaryOperationTypes.Multiply:
+            case BinaryOperationTypes.BitwiseAnd:
+            case BinaryOperationTypes.BitwiseOr:
+            case BinaryOperationTypes.BitwiseXor:
+            case BinaryOperationTypes.LeftShift:
+            case BinaryOperationTypes.RightShift:
+                sb.Append($"        ; {bo.OperationType} {bo.Location}\n");
                 generateExecutable(bo.Right, locals, sb);
+                sb.Append($"    push rax\n");
+                generateExecutable(bo.Left, locals, sb);
                 sb.Append($"    pop rbx\n");
                 sb.Append($"    add rax, rbx\n");
                 return 0;
@@ -229,9 +263,56 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 string op = compareOps[bo.OperationType];
                 sb.Append($"    cmov{op} rax, rdx\n");
                 return 0;
+
+            case BinaryOperationTypes.Divide:
+                sb.Append($"        ; Division {bo.Location}\n");
+                generateExecutable(bo.Right, locals, sb);
+                sb.Append($"    push rax\n");
+                generateExecutable(bo.Left, locals, sb);
+                sb.Append($"    pop rbx\n");
+                sb.Append($"    xor rdx, rdx\n");
+                sb.Append($"    idiv rbx\n");
+                return 0;
+
+            case BinaryOperationTypes.Remainder:
+                sb.Append($"        ; Remainder {bo.Location}\n");
+                generateExecutable(bo.Right, locals, sb);
+                sb.Append($"    push rax\n");
+                generateExecutable(bo.Left, locals, sb);
+                sb.Append($"    pop rbx\n");
+                sb.Append($"    xor rdx, rdx\n");
+                sb.Append($"    idiv rbx\n");
+                sb.Append($"    mov rax, rdx\n");
+                return 0;
+
             default:
                 throw new NotImplementedException($"Binary operation {bo.OperationType} not implemented");
         }
+    }
+
+    private int generateUnaryOP(UnaryOperation uo, INameContainer locals, StringBuilder sb)
+    {
+        switch (uo.OperationType)
+        {
+            case UnaryOperationTypes.Cast:
+                return generateExecutable(uo.Operand, locals, sb);
+
+            case UnaryOperationTypes.GetReference:
+                if (uo.Operand is not Identifyer ident
+                    || ident.Definition is not VariableDefinition variable)
+                    throw new Exception("Expecter variable identifier");
+                sb.Append($"        ; GetReference {uo.Location}\n");
+                int offset = locals.GetVariableOffset(variable);
+                if (offset == 0)
+                    sb.Append($"    lea rax, [{variable.FullName}]\n");
+                else
+                    sb.Append($"    lea rax, [rbp {offset:+ 0;- 0}]\n");
+
+                return 0;
+
+            default:
+                throw new NotImplementedException($"Unary operation {uo.OperationType}");
+        }   
     }
 
     private void generateCodeBlock(CodeBlock cb, INameContainer locals, StringBuilder sb)

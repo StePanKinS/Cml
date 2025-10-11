@@ -1,7 +1,7 @@
 
 external void printf(char* fmt);
 
-int main()
+export int main()
 {
 	int i = 0;
 	int c;
@@ -16,6 +16,7 @@ int main()
 			printf("baz\n");
 		else
 			printf("sad smile\n");
+		i = i + 1;
 	}
 
 	return 228;
