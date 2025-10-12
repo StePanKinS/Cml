@@ -568,7 +568,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
         funcDef.ContainsReturn = returnType != null;
 
-        if (funcDef.ReturnType != DefaultTypes.Void && funcDef.ReturnType != returnType)
+        if (funcDef.ReturnType != DefaultType.Void && funcDef.ReturnType != returnType)
             errorer.Append($"Function return type `{funcDef.ReturnType.FullName}` does not match actual return type `{returnType?.FullName}`", funcDef.Location);
     }
 
@@ -615,9 +615,19 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 if (e == null)
                 {
                     errorer.Append("Can not parse expression", kwdToken.Location);
-                    returnType = DefaultTypes.Void;
+                    returnType = DefaultType.Void;
                     return new Return(new Nop(kwdToken.Location), kwdToken.Location);
                 }
+
+                if (e.ReturnType != funcDef.ReturnType)
+                {
+                    var promoted =promoteToType(e, funcDef.ReturnType);
+                    if (promoted == null)
+                        errorer.Append($"Function return type `{funcDef.ReturnType}` does not match actual return type `{e.ReturnType}`", e.Location);
+                    else
+                        e = promoted;
+                }
+
 
                 returnType = e.ReturnType;
                 return new Return(e, new Location(kwdToken.Location, e.Location));
@@ -638,7 +648,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     errorer.Append("Con not parse condition", kwdToken.Location);
                     cond = new Nop(kwdToken.Location);
                 }
-                if (cond.ReturnType != DefaultTypes.Bool)
+                if (cond.ReturnType != DefaultType.Bool)
                     errorer.Append($"Expected bool type, not {cond.ReturnType}", cond.Location);
                     
                 tokens.Read();
@@ -665,7 +675,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     errorer.Append("Con not parse condition", kwdToken.Location);
                     cond = new Nop(kwdToken.Location);
                 }
-                if (cond.ReturnType != DefaultTypes.Bool)
+                if (cond.ReturnType != DefaultType.Bool)
                 {
                     errorer.Append($"Expected bool type, not {cond.ReturnType}", cond.Location);
                 }
@@ -796,7 +806,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         if (!tokens.Read(out token))
             return null;
 
-        Executable? lhs = null;
+        Executable? lhs;
 
         if (tryGetImmidiateValue(token, tokens, nameCtx, funcDef, expectSemicolon, out lhs))
         {
@@ -900,37 +910,104 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 || lhsIdent.Definition is not VariableDefinition varDef)
                     return null;
                 if (varDef.ValueType != right.ReturnType)
-                    return null;
+                {
+                    var promoted = promoteToType(right, varDef.ValueType);
+                    if (promoted == null)
+                        return null;
+                    right = promoted;
+                }
 
                 returnType = varDef.ValueType;
                 break;
+                
             case BinaryOperationTypes.Add:
             case BinaryOperationTypes.Subtract:
             case BinaryOperationTypes.Multiply:
             case BinaryOperationTypes.Divide:
             case BinaryOperationTypes.Remainder:
-            case BinaryOperationTypes.BitwiseOr:
-            case BinaryOperationTypes.BitwiseAnd:
-                if (left.ReturnType != DefaultTypes.Int
-                    || right.ReturnType != DefaultTypes.Int)
+                var t = getLeastCommonType(left.ReturnType, right.ReturnType);
+                var l = promoteToType(left, t);
+                var r = promoteToType(right, t);
+                if (l == null || r == null)
                     return null;
-                returnType = DefaultTypes.Int;
+                left = l;
+                right = r;
+                returnType = t!;
                 break;
+
+            case BinaryOperationTypes.BitwiseAnd:
+            case BinaryOperationTypes.BitwiseOr:
+            case BinaryOperationTypes.BitwiseXor:
+                if (left.ReturnType is not DefaultType.Integer lint
+                    || right.ReturnType is not DefaultType.Integer rint)
+                    return null;
+
+                int size = Math.Max(lint.Size, rint.Size);
+                if (lint.Size != size)
+                    left = promoteToType(left, DefaultType.Integer.GetObject(size, lint.IsSigned))!;
+                if (rint.Size != size)
+                    right = promoteToType(right, DefaultType.Integer.GetObject(size, rint.IsSigned))!;
+                returnType = DefaultType.Integer.GetObject(size, false);
+                break;
+
             case BinaryOperationTypes.Less:
             case BinaryOperationTypes.LessEquals:
             case BinaryOperationTypes.Greater:
             case BinaryOperationTypes.GreaterEquals:
             case BinaryOperationTypes.IsEquals:
             case BinaryOperationTypes.NotEquals:
-                if (left.ReturnType != DefaultTypes.Int
-                    || right.ReturnType != DefaultTypes.Int)
+                var type = getLeastCommonType(left.ReturnType, right.ReturnType);
+                var le = promoteToType(left, type);
+                var re = promoteToType(right, type);
+                if (le == null || re == null)
                     return null;
-                returnType = DefaultTypes.Bool;
+                left = le;
+                right = re;
+                returnType = DefaultType.Bool;
                 break;
+
             default:
                 throw new Exception($"Binary operation {op} not implemented in verifyBinaryOperation");
         }
         return new BinaryOperation(op, left, right, returnType, new Location(left.Location, right.Location));
+    }
+
+    private StructDefinition? getLeastCommonType(StructDefinition a, StructDefinition b)
+    {
+        if (a is not DefaultType.Integer inta
+            || b is not DefaultType.Integer intb)
+            return null;
+        
+        if (a == DefaultType.Integer.Lit)
+            return b;
+        if (b == DefaultType.Integer.Lit)
+            return a;
+
+        if (inta.IsSigned != intb.IsSigned)
+            return null;
+        return inta.Size >= intb.Size ? inta : intb;
+    }
+
+    private Executable? promoteToType(Executable e, StructDefinition? targetType)
+    {
+        if (targetType == null)
+            return null;
+        if (e.ReturnType == targetType)
+            return e;
+
+        bool allowed = false;
+
+        if (e.ReturnType is DefaultType.Integer eint
+            && targetType is DefaultType.Integer tint
+            && (eint.IsSigned == tint.IsSigned
+                && eint.Size < tint.Size
+                || eint == DefaultType.Integer.Lit))
+            allowed = true;
+        
+        if (allowed)
+            return new UnaryOperation(UnaryOperationTypes.Cast, e, targetType, e.Location);
+        else
+            return null;
     }
 
     private Executable? parseFuncCall(Executable lhs, EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef)
@@ -1056,9 +1133,27 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         Executable? e = parseExpression(tokens, nameCtx, funcDef, PrefixOpBP, expectClosingPrant, expectComma, expectSemicolon, false);
         if (e == null)
             return null;
+        if (!checkTypeCast(e.ReturnType, type))
+            return null;
+
         Location loc = new(startLoc, e.Location);
 
         return new UnaryOperation(UnaryOperationTypes.Cast, e, type, loc);
+    }
+
+    private bool checkTypeCast(StructDefinition from, StructDefinition to)
+    {
+        if (from == to)
+            return true;
+        if (from is DefaultType.Integer && to is DefaultType.Integer)
+            return true;
+        if (from is Pointer && to is Pointer)
+            return true;
+        if (from is DefaultType.Integer && to is Pointer)
+            return true;
+        if (from is Pointer && to is DefaultType.Integer)
+            return true;
+        return false;
     }
 
     private Executable getLiteralExecutable(Token token)
@@ -1066,19 +1161,19 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         StructDefinition? litType;
         if (token is Token<char> charToken)
         {
-            return new Literal<char>(charToken.Value, DefaultTypes.Char, token.Location);
+            return new Literal<char>(charToken.Value, DefaultType.Char, token.Location);
         }
         else if (token is Token<string> stringToken)
         {
-            litType = new Pointer(DefaultTypes.Char);
+            litType = new Pointer(DefaultType.Char);
             return new Literal<string>(stringToken.Value, litType!, token.Location);
         }
         else if (token is Token<ulong> intToken)
         {
-            return new Literal<ulong>(intToken.Value, DefaultTypes.Int, token.Location);
+            return new Literal<ulong>(intToken.Value, DefaultType.Integer.Lit, token.Location);
         }
         else if (token is Token<bool> boolToken)
-            return new Literal<bool>(boolToken.Value, DefaultTypes.Bool, token.Location);
+            return new Literal<bool>(boolToken.Value, DefaultType.Bool, token.Location);
 
         throw new Exception($"Unknown literal type {token}");
     }

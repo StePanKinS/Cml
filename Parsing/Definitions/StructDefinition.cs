@@ -29,6 +29,18 @@ public class StructDefinition(
         }
     }
 
+    protected StructDefinition(
+        string name,
+        int size,
+        IEnumerable<(Token<string> type, Token<string> name)> members,
+        Definition parent,
+        Keywords[] modifyers,
+        Location location
+    ) : this(name, members, parent, modifyers, location)
+    {
+        this.size = size;
+    }
+
     public StructMember? GetStructMember(string name)
     {
         var mems = (from mem in Members where mem.Name.Value == name select mem).ToArray();
@@ -61,9 +73,19 @@ public class StructDefinition(
 
     public static void AddStandartTypes(NamespaceDefinition globalNamespace)
     {
-        globalNamespace.Append(DefaultTypes.Void);
-        globalNamespace.Append(DefaultTypes.Char);
-        globalNamespace.Append(DefaultTypes.Int);
+        globalNamespace.Append(DefaultType.Void);
+        globalNamespace.Append(DefaultType.Char);
+        globalNamespace.Append(DefaultType.Bool);
+
+        globalNamespace.Append(DefaultType.Integer.SByte);
+        globalNamespace.Append(DefaultType.Integer.Short);
+        globalNamespace.Append(DefaultType.Integer.Int);
+        globalNamespace.Append(DefaultType.Integer.Long);
+
+        globalNamespace.Append(DefaultType.Integer.Byte);
+        globalNamespace.Append(DefaultType.Integer.UShort);
+        globalNamespace.Append(DefaultType.Integer.UInt);
+        globalNamespace.Append(DefaultType.Integer.ULong);
     }
 
     public static bool operator ==(StructDefinition? sd1, StructDefinition? sd2)

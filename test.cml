@@ -7,7 +7,7 @@ export int main()
 	int c;
 	while (i < 10) {
 		c = 0;
-		c = c | i + 48;
+		c = (int)(c | i + 48);
 		printf((char*)&c);
 		printf(": ");
 		if (i % 3 == 0)
