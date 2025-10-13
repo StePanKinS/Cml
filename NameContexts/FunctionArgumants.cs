@@ -14,7 +14,7 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
         get
         {
             if (size == -1)
-                size = Variables.Sum(v => v.ValueType.Size);
+                size = Variables.Sum(v => (v.ValueType.Size + 7) & ~7);
             return size;
         }
     }
@@ -46,7 +46,7 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
         {
             if (v == variable)
                 return offset;
-            offset += v.ValueType.Size;
+            offset += (v.ValueType.Size + 7) & ~7;
         }
 
         return 1;

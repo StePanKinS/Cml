@@ -13,7 +13,7 @@ public class LocalVariables(INameContainer parent) : INameContainer
         get
         {
             if (size == -1)
-                size = Parent.Size + Variables.Sum(v => v.ValueType.Size);
+                size = Parent.Size + Variables.Sum(v => (v.ValueType.Size + 7) & ~7);
             return size;
         }
     }
@@ -54,13 +54,13 @@ public class LocalVariables(INameContainer parent) : INameContainer
         if (!Variables.Contains(variable))
             return Parent.GetVariableOffset(variable);
 
-        int offset = -Parent.Size;
+        int offset = Parent.Size;
         foreach (var v in Variables)
         {
-            offset -= v.ValueType.Size;
+            offset += (v.ValueType.Size + 7) & ~7;
 
             if (v == variable)
-                return offset;
+                return -offset;
         }
 
         return 1; // should not happen
