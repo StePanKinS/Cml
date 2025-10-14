@@ -12,7 +12,7 @@ string path;
 if (args.Length > 0)
     path = args[0];
 else
-    path = @"test.cml";
+    path = @"test2.cml";
 
 
 

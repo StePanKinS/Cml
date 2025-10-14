@@ -1149,9 +1149,15 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             return true;
         if (from is Pointer && to is Pointer)
             return true;
-        if (from is DefaultType.Integer && to is Pointer)
+        if (from is DefaultType.Integer i
+            && i.Size == 8
+            && i.IsSigned == false 
+            && to is Pointer)
             return true;
-        if (from is Pointer && to is DefaultType.Integer)
+        if (from is Pointer 
+            && to is DefaultType.Integer it
+            && it.Size == 8
+            && it.IsSigned == false)
             return true;
         return false;
     }
