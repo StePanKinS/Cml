@@ -9,6 +9,41 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
     private int if_counter = 0;
     private int while_counter = 0;
 
+
+    private static readonly string[] Rregisters = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+
+    private static readonly Dictionary<BinaryOperationTypes, string> CompareOps = new()
+    {
+        { BinaryOperationTypes.Less,          "l"  },
+        { BinaryOperationTypes.LessEquals,    "le" },
+        { BinaryOperationTypes.Greater,       "g"  },
+        { BinaryOperationTypes.GreaterEquals, "ge" },
+        { BinaryOperationTypes.IsEquals,      "e"  },
+        { BinaryOperationTypes.NotEquals,     "ne" },
+    };
+
+    private static readonly Dictionary<BinaryOperationTypes, string> MathOps = new()
+    {
+        { BinaryOperationTypes.Add,        "add"  },
+        { BinaryOperationTypes.Subtract,   "sub"  },
+        { BinaryOperationTypes.Multiply,   "imul" },
+        { BinaryOperationTypes.BitwiseAnd, "and"  },
+        { BinaryOperationTypes.BitwiseOr,  "or"   },
+        { BinaryOperationTypes.BitwiseXor, "xor"  },
+        { BinaryOperationTypes.LeftShift,  "shl"  },
+        { BinaryOperationTypes.RightShift, "shr"  },
+    };
+
+    private static readonly Dictionary<int, string> RegisterSizes = new()
+    {
+        { 1, "al"  },
+        { 2, "ax"  },
+        { 4, "eax" },
+        { 8, "rax" },
+    };
+
+
+
     public string Generate()
         => topLevel();
 
@@ -93,6 +128,11 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         sb.Append("    push rbp\n");
         sb.Append("    mov rbp, rsp\n");
 
+        for (int i = 0; i < fn.Arguments.GetIntCount(); i++)
+        {
+            sb.Append($"    push {Rregisters[i]}\n");
+        }
+
         generateExecutable(fn.Code, fn.Arguments, sb);
 
         if (!fn.ContainsReturn)
@@ -113,7 +153,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 return 0;
 
             case FunctionCall fc:
-                generateFunctioncall(fc, locals, sb);
+                generateFunctionCall(fc, locals, sb);
                 return 0;
 
             case Identifyer id:
@@ -187,36 +227,6 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         }
     }
 
-    private static readonly Dictionary<BinaryOperationTypes, string> compareOps = new()
-    {
-        { BinaryOperationTypes.Less,          "l"  },
-        { BinaryOperationTypes.LessEquals,    "le" },
-        { BinaryOperationTypes.Greater,       "g"  },
-        { BinaryOperationTypes.GreaterEquals, "ge" },
-        { BinaryOperationTypes.IsEquals,      "e"  },
-        { BinaryOperationTypes.NotEquals,     "ne" },
-    };
-
-    private static readonly Dictionary<BinaryOperationTypes, string> mathOps = new()
-    {
-        { BinaryOperationTypes.Add,        "add"  },
-        { BinaryOperationTypes.Subtract,   "sub"  },
-        { BinaryOperationTypes.Multiply,   "imul" },
-        { BinaryOperationTypes.BitwiseAnd, "and"  },
-        { BinaryOperationTypes.BitwiseOr,  "or"   },
-        { BinaryOperationTypes.BitwiseXor, "xor"  },
-        { BinaryOperationTypes.LeftShift,  "shl"  },
-        { BinaryOperationTypes.RightShift, "shr"  },
-    };
-
-    private static readonly Dictionary<int, string> registerSizes = new()
-    {
-        { 1, "al"  },
-        { 2, "ax"  },
-        { 4, "eax" },
-        { 8, "rax" },
-    };
-
     private int generateBinaryOp(BinaryOperation bo, INameContainer locals, StringBuilder sb)
     {
         switch (bo.OperationType)
@@ -229,9 +239,9 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 {
                     int offset = locals.GetVariableOffset(variable);
                     if (offset == 0)
-                        sb.Append($"    mov [{variable.FullName}], {registerSizes[variable.ValueType.Size]}\n");
+                        sb.Append($"    mov [{variable.FullName}], {RegisterSizes[variable.ValueType.Size]}\n");
                     else
-                        sb.Append($"    mov [rbp {offset:+ 0;- 0}], {registerSizes[variable.ValueType.Size]}\n");
+                        sb.Append($"    mov [rbp {offset:+ 0;- 0}], {RegisterSizes[variable.ValueType.Size]}\n");
                 }
                 return 0;
 
@@ -248,7 +258,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 sb.Append($"    push rax\n");
                 generateExecutable(bo.Left, locals, sb);
                 sb.Append($"    pop rbx\n");
-                sb.Append($"    {mathOps[bo.OperationType]} rax, rbx\n");
+                sb.Append($"    {MathOps[bo.OperationType]} rax, rbx\n");
                 return 0;
 
             case BinaryOperationTypes.Less:
@@ -266,7 +276,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 sb.Append($"    xor rax, rax\n");
                 sb.Append($"    mov rdx, 1\n");
                 sb.Append($"    sub rbx, rcx\n");
-                string op = compareOps[bo.OperationType];
+                string op = CompareOps[bo.OperationType];
                 sb.Append($"    cmov{op} rax, rdx\n");
                 return 0;
 
@@ -343,9 +353,9 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
             return 0; // No action needed for truncation
 
         if (to.IsSigned ^ from.IsSigned || !to.IsSigned) // if different signedness or both unsigned
-            sb.Append($"    movzx {registerSizes[to.Size]}, {registerSizes[from.Size]}\n");
+            sb.Append($"    movzx {RegisterSizes[to.Size]}, {RegisterSizes[from.Size]}\n");
         else
-            sb.Append($"    movsx {registerSizes[to.Size]}, {registerSizes[from.Size]}\n");
+            sb.Append($"    movsx {RegisterSizes[to.Size]}, {RegisterSizes[from.Size]}\n");
 
         return 0;
     }
@@ -356,23 +366,19 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
             throw new Exception("Return type size greater than 8 bytes not supported");
 
         sb.Append($"        ; Code block start {cb.Location}\n");
-        // ensure stack allocation is 16-byte aligned
-        int alloc = Align(cb.Locals.Size + cb.ReturnType.Size, 16);
-        sb.Append($"    sub rsp, {alloc}\n"); ;
+        sb.Append($"    sub rsp, {cb.Locals.SelfSize}\n"); ;
         foreach (var c in cb.Code)
             generateExecutable(c, cb.Locals, sb);
 
         sb.Append($"        ; Code block end {cb.Location}\n");
-        // sb.Append($"    pop rax\n"); // Expected code block return value on top of the stack
-        sb.Append($"    add rsp, {alloc}\n");
+        sb.Append($"    add rsp, {cb.Locals.SelfSize}\n");
     }
 
-    private void generateFunctioncall(FunctionCall fc, INameContainer locals, StringBuilder sb)
+    private void generateFunctionCall(FunctionCall fc, INameContainer locals, StringBuilder sb)
     {
         sb.Append($"        ; Function call {fc.Location}\n");
         // SysV AMD64 calling convention: first 6 integer/pointer args in registers (rdi,rsi,rdx,rcx,r8,r9),
         // remaining args pushed on the stack. Evaluate args in the same order as before (last -> first).
-        string[] regs = new[] { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
         int totalArgs = fc.Args.Length;
         int stackArgs = Math.Max(0, totalArgs - 6);
         int stackBytes = stackArgs * 8;
@@ -388,7 +394,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
 
             if (i < 6)
             {
-                sb.Append($"    mov {regs[i]}, rax\n");
+                sb.Append($"    mov {Rregisters[i]}, rax\n");
             }
             else
             {
@@ -420,7 +426,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 source = $"rbp {offset:+ 0;- 0}";
             if (varDef.ValueType.Size != 8)
                 sb.Append($"    xor rax, rax\n");
-            sb.Append($"    mov {registerSizes[varDef.ValueType.Size]}, [{source}]\n");
+            sb.Append($"    mov {RegisterSizes[varDef.ValueType.Size]}, [{source}]\n");
         }
         else if (id.Definition is FunctionDefinition fnDef)
         {

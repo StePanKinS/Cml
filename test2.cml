@@ -1,11 +1,20 @@
 
 external int printf(char* fmt, int a);
 
+int func(int a, int b, int c, int d, int e, int f)
+{
+    int ab = a + b;
+    if (ab < a)
+        return -1;
+    int cd = c - d;
+    int ef = e * f;
+    return ab + cd + ef;
+}
 
 export int main()
 {
     sbyte b = 10;
-    printf("%d\n", (int)b);
+    printf("%d\n", func(1, 2, 3, 4, 5, 6));
 
     return 0;
 }

@@ -642,7 +642,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     return new Nop(kwdToken.Location);
                 }
 
-                Executable? cond = parseExpression(tokens, nameCtx, funcDef, int.MinValue, true, false, false, false);
+                Executable? cond = parseExpression(tokens, nameCtx, funcDef, int.MinValue, [Symbols.CircleClose], false);
                 if (cond == null)
                 {
                     errorer.Append("Con not parse condition", kwdToken.Location);
@@ -669,7 +669,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     return new Nop(kwdToken.Location);
                 }
 
-                Executable? cond = parseExpression(tokens, nameCtx, funcDef, int.MinValue, true, false, false, false);
+                Executable? cond = parseExpression(tokens, nameCtx, funcDef, int.MinValue, [Symbols.CircleClose], false);
                 if (cond == null)
                 {
                     errorer.Append("Con not parse condition", kwdToken.Location);
@@ -719,7 +719,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
     }
 
     private Executable? parseExpression(EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef)
-        => parseExpression(tokens, nameCtx, funcDef, int.MinValue, false, false, true, true);
+        => parseExpression(tokens, nameCtx, funcDef, int.MinValue, [Symbols.Semicolon], true);
 
     private static readonly Dictionary<Symbols, UnaryOperationTypes> PrefixOperations = new()
     {
@@ -796,10 +796,8 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         INameContainer nameCtx,
         FunctionDefinition funcDef,
         int minBP,
-        bool expectClosingPrant,
-        bool expectComma,
-        bool expectSemicolon,
-        bool consumeSemicolon
+        IEnumerable<Symbols> endSymbols,
+        bool consumeEndSymbol
     )
     {
         Token? token, t;
@@ -808,7 +806,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
         Executable? lhs;
 
-        if (tryGetImmidiateValue(token, tokens, nameCtx, funcDef, expectSemicolon, out lhs))
+        if (tryGetImmidiateValue(token, tokens, nameCtx, funcDef, endSymbols, out lhs))
         {
             if (lhs == null)
                 return null;
@@ -824,11 +822,11 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     nameCtx.TryGetType(((Token<string>)t).Value, out var castType))
                 {
                     tokens.Read();
-                    lhs = parseTypeCast(tokens, nameCtx, funcDef, expectClosingPrant, expectComma, expectSemicolon, castType, symbolToken.Location);
+                    lhs = parseTypeCast(tokens, nameCtx, funcDef, endSymbols, castType, symbolToken.Location);
                 }
                 else
                 {
-                    lhs = parseExpression(tokens, nameCtx, funcDef, int.MinValue, true, false, false, false);
+                    lhs = parseExpression(tokens, nameCtx, funcDef, int.MinValue, [Symbols.CircleClose], false);
                     if (!tokens.Read(out t) || t.Type != TokenType.Symbol || ((Token<Symbols>)t).Value != Symbols.CircleClose)
                     {
                         // errorer.Append("Expected `)`", loc);
@@ -838,7 +836,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             }
             else if (PrefixOperations.TryGetValue(symbolToken.Value, out UnaryOperationTypes value))
             {
-                Executable? rhs = parseExpression(tokens, nameCtx, funcDef, PrefixOpBP, expectClosingPrant, expectComma, expectSemicolon, false);
+                Executable? rhs = parseExpression(tokens, nameCtx, funcDef, PrefixOpBP, endSymbols, false);
                 if (rhs == null)
                     return null;
                 lhs = new UnaryOperation(value, rhs, rhs.ReturnType, new Location(symbolToken.Location, rhs.Location));
@@ -871,7 +869,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     return lhs;
 
                 tokens.Read();
-                Executable? rhs = parseExpression(tokens, nameCtx, funcDef, rightBP, expectClosingPrant, expectComma, expectSemicolon, false);
+                Executable? rhs = parseExpression(tokens, nameCtx, funcDef, rightBP, endSymbols, false);
                 if (rhs == null)
                     return null;
 
@@ -879,20 +877,10 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 if (lhs == null)
                     return null;
             }
-            else if (expectClosingPrant && symbolToken.Value == Symbols.CircleClose)
+            else if (endSymbols.Contains(symbolToken.Value))
             {
-                return lhs;
-            }
-            else if (expectComma && symbolToken.Value == Symbols.Comma)
-            {
-                tokens.Read();
-                return lhs;
-            }
-            else if (expectSemicolon && symbolToken.Value == Symbols.Semicolon)
-            {
-                if (consumeSemicolon)
+                if (consumeEndSymbol)
                     tokens.Read();
-
                 return lhs;
             }
             else
@@ -1030,20 +1018,26 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 tokens.Read();
                 break;
             }
-            Executable? e = parseExpression(tokens, nameCtx, funcDef, 0, true, true, false, false);
-            if (args.Count == funcPtr.Args.Length)
+            Executable? e = parseExpression(tokens, nameCtx, funcDef, 0, [Symbols.CircleClose, Symbols.Comma], false);
+            if (e == null || args.Count == funcPtr.Args.Length)
                 return null;
-            if (e == null || e.ReturnType != funcPtr.Args[args.Count])
+            e = promoteToType(e, funcPtr.Args[args.Count]);
+            if (e == null)
                 return null;
             args.Add(e);
+
+            if (!tokens.Peek(out token))
+                return null;
+            if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.Comma)
+                tokens.Read();
         }
         return new FunctionCall(lhs, [.. args], funcPtr.ReturnType, loc);
     }
 
-    private bool tryGetImmidiateValue(Token token, EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef, bool expectSemicolon, out Executable? executable)
+    private bool tryGetImmidiateValue(Token token, EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef, IEnumerable<Symbols> endSymbols, out Executable? executable)
     {
         executable = null;
-        if (expectSemicolon
+        if (endSymbols.Contains(Symbols.Semicolon)
             && token.Type == TokenType.Symbol
             && ((Token<Symbols>)token).Value == Symbols.Semicolon
             )
@@ -1097,9 +1091,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         EnumerableReader<Token> tokens,
         INameContainer nameCtx,
         FunctionDefinition funcDef,
-        bool expectClosingPrant,
-        bool expectComma,
-        bool expectSemicolon,
+        IEnumerable<Symbols> endSymbols,
         StructDefinition type,
         Location startLoc
         )
@@ -1130,7 +1122,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             type = new Pointer(type);
         }
 
-        Executable? e = parseExpression(tokens, nameCtx, funcDef, PrefixOpBP, expectClosingPrant, expectComma, expectSemicolon, false);
+        Executable? e = parseExpression(tokens, nameCtx, funcDef, PrefixOpBP, endSymbols, false);
         if (e == null)
             return null;
         if (!checkTypeCast(e.ReturnType, type))

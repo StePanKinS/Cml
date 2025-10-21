@@ -14,7 +14,7 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
         get
         {
             if (size == -1)
-                size = Variables.Sum(v => (v.ValueType.Size + 7) & ~7);
+                size = GetIntCount() * 8;
             return size;
         }
     }
@@ -41,12 +41,40 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
         if (!Variables.Contains(variable))
             return Parent.GetVariableOffset(variable);
 
-        int offset = 16; // Skip return address and old base pointer
+        // int offset = 16; // Skip return address and old base pointer
+        // foreach (var v in Variables)
+        // {
+        //     if (v == variable)
+        //         return offset;
+        //     offset += (v.ValueType.Size + 7) & ~7;
+        // }
+
+        int intCnt = 0;
+        int memCnt = 0;
+        bool memInt = false;
+
         foreach (var v in Variables)
         {
+            if (v.ValueType is DefaultType.Integer || v.ValueType is Pointer)
+                if (intCnt == 6)
+                {
+                    memCnt++;
+                    memInt = true;
+                }
+                else
+                    intCnt++;
+            else
+                throw new NotImplementedException("Only integer and pointer argument types are supported");
+
+
             if (v == variable)
-                return offset;
-            offset += (v.ValueType.Size + 7) & ~7;
+            {
+                if (memInt)
+                    return 16 + (memCnt - 1) * 8;
+                else
+                    return - intCnt * 8;
+            }
+            
         }
 
         return 1;
@@ -67,6 +95,17 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
             throw new Exception($"Found several `{name}` names");
 
         return Parent.TryGet(name, out definition);
+    }
+
+    public int GetIntCount()
+    {
+        int count = 0;
+        foreach (var v in Variables.Select(v => v.ValueType))
+        {
+            if (v is DefaultType.Integer || v is Pointer)
+                count++;
+        }
+        return count;
     }
 
     public bool TryGetType(string name, [MaybeNullWhen(false)] out StructDefinition type)

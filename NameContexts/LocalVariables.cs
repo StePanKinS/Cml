@@ -13,7 +13,17 @@ public class LocalVariables(INameContainer parent) : INameContainer
         get
         {
             if (size == -1)
-                size = Parent.Size + Variables.Sum(v => (v.ValueType.Size + 7) & ~7);
+                size = Variables.Sum(v => (v.ValueType.Size + 7) & ~7);
+            return size + Parent.Size;
+        }
+    }
+
+    public int SelfSize
+    {
+        get
+        {
+            if (size == -1)
+                size = Variables.Sum(v => (v.ValueType.Size + 7) & ~7);
             return size;
         }
     }
