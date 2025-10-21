@@ -7,21 +7,11 @@ global using Cml.Lexing;
 global using Cml.Errors;
 using System.Diagnostics;
 
-string path;
+string path = @"test2.cml";
 
-if (args.Length > 0)
-    path = args[0];
-else
-    path = @"test2.cml";
-
-
+string build_folder = args.Length > 0 ? args[0] : "/tmp";
 
 Lexer lexer = new(path);
-
-// foreach (var (index, value) in lexer.Enumerate())
-// {
-//     Console.WriteLine($"{index}) {value.Location}: {value}");
-// }
 
 var glbNmsp = NamespaceDefinition.NewGlobal();
 StructDefinition.AddStandartTypes(glbNmsp);
@@ -58,13 +48,9 @@ void printDefs(NamespaceDefinition nmsp)
     }
 }
 
-
-// string expandUser(string path)
-//     => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), path[2..]);
-
 void postProcess(string code)
 {
-    StreamWriter sw = new("/tmp/test.asm");
+    StreamWriter sw = new($"{build_folder}/test.asm");
     sw.Write(code);
     sw.Close();
 
@@ -72,21 +58,14 @@ void postProcess(string code)
     {
         UseShellExecute = false,
         FileName = "fasm",
-        Arguments = "/tmp/test.asm /tmp/test.o",
+        Arguments = $"{build_folder}/test.asm {build_folder}/test.o",
         RedirectStandardOutput = true,
     })?.WaitForExit();
-    // Process.Start(new ProcessStartInfo()
-    // {
-    //     UseShellExecute = false,
-    //     FileName = "fasm",
-    //     Arguments = "./CodeGenerating/stdprint.asm /tmp/lib.o",
-    //     RedirectStandardOutput = true
-    // })?.WaitForExit();
     Process.Start(new ProcessStartInfo()
     {
         UseShellExecute = false,
         FileName = "gcc",
-        Arguments = "/tmp/test.o -o /tmp/test -no-pie",
+        Arguments = $"{build_folder}/test.o -o {build_folder}/test -no-pie",
         RedirectStandardOutput = true
     })?.WaitForExit();
 }
