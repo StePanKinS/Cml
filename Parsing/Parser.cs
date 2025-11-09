@@ -962,18 +962,33 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
     private StructDefinition? getLeastCommonType(StructDefinition a, StructDefinition b)
     {
-        if (a is not DefaultType.Integer inta
-            || b is not DefaultType.Integer intb)
-            return null;
-        
-        if (a == DefaultType.Integer.Lit)
-            return b;
-        if (b == DefaultType.Integer.Lit)
+        if (a is DefaultType.Integer inta
+            && b is DefaultType.Integer intb)
+        {
+            if (a == DefaultType.Integer.Lit)
+                return b;
+            if (b == DefaultType.Integer.Lit)
+                return a;
+
+            if (inta.IsSigned != intb.IsSigned)
+                return null;
+
+            return inta.Size >= intb.Size ? inta : intb;
+        }
+
+        if (a is DefaultType.FloatingPoint fa
+            && b is DefaultType.FloatingPoint fb)
+            return fa.Size > fb.Size ? fa : fb;
+
+        if (a is DefaultType.FloatingPoint
+            && b is DefaultType.Integer)
             return a;
 
-        if (inta.IsSigned != intb.IsSigned)
-            return null;
-        return inta.Size >= intb.Size ? inta : intb;
+        if (a is DefaultType.Integer
+            && b is DefaultType.FloatingPoint)
+            return b;
+
+        return null;
     }
 
     private Executable? promoteToType(Executable e, StructDefinition? targetType)
@@ -990,6 +1005,15 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             && (eint.IsSigned == tint.IsSigned
                 && eint.Size < tint.Size
                 || eint == DefaultType.Integer.Lit))
+            allowed = true;
+
+        if (e.ReturnType is DefaultType.Integer
+            && targetType is DefaultType.FloatingPoint)
+            allowed = true;
+
+        if (e.ReturnType is DefaultType.FloatingPoint ef
+            && targetType is DefaultType.FloatingPoint tf
+            && tf.Size >= ef.Size)
             allowed = true;
         
         if (allowed)
@@ -1021,10 +1045,13 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             Executable? e = parseExpression(tokens, nameCtx, funcDef, 0, [Symbols.CircleClose, Symbols.Comma], false);
             if (e == null || args.Count == funcPtr.Args.Length)
                 return null;
-            e = promoteToType(e, funcPtr.Args[args.Count]);
-            if (e == null)
+            Executable? exe = promoteToType(e, funcPtr.Args[args.Count]);
+            if (exe == null)
+            {
+                errorer.Append($"Type missmatch: {e.ReturnType}, {funcPtr.Args[args.Count]}", e.Location);
                 return null;
-            args.Add(e);
+            }
+            args.Add(exe);
 
             if (!tokens.Peek(out token))
                 return null;
@@ -1146,32 +1173,38 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             && i.IsSigned == false 
             && to is Pointer)
             return true;
-        if (from is Pointer 
+        if (from is Pointer
             && to is DefaultType.Integer it
             && it.Size == 8
             && it.IsSigned == false)
+            return true;
+        if (from is DefaultType.FloatingPoint
+            && to is DefaultType.FloatingPoint)
+            return true;
+        if (from is DefaultType.FloatingPoint
+            && to is DefaultType.Integer
+            || from is DefaultType.Integer
+            && to is DefaultType.FloatingPoint)
             return true;
         return false;
     }
 
     private Executable getLiteralExecutable(Token token)
     {
-        StructDefinition? litType;
         if (token is Token<char> charToken)
-        {
             return new Literal<char>(charToken.Value, DefaultType.Char, token.Location);
-        }
+
         else if (token is Token<string> stringToken)
-        {
-            litType = new Pointer(DefaultType.Char);
-            return new Literal<string>(stringToken.Value, litType!, token.Location);
-        }
+            return new Literal<string>(stringToken.Value, new Pointer(DefaultType.Char), token.Location);
+
         else if (token is Token<ulong> intToken)
-        {
             return new Literal<ulong>(intToken.Value, DefaultType.Integer.Lit, token.Location);
-        }
+
         else if (token is Token<bool> boolToken)
             return new Literal<bool>(boolToken.Value, DefaultType.Bool, token.Location);
+
+        else if (token is Token<double> doubleToken)
+            return new Literal<double>(doubleToken.Value, DefaultType.FloatingPoint.Lit, token.Location);
 
         throw new Exception($"Unknown literal type {token}");
     }

@@ -86,6 +86,9 @@ public class StructDefinition(
         globalNamespace.Append(DefaultType.Integer.UShort);
         globalNamespace.Append(DefaultType.Integer.UInt);
         globalNamespace.Append(DefaultType.Integer.ULong);
+
+        globalNamespace.Append(DefaultType.FloatingPoint.Float);
+        globalNamespace.Append(DefaultType.FloatingPoint.Double);
     }
 
     public static bool operator ==(StructDefinition? sd1, StructDefinition? sd2)

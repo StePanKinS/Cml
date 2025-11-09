@@ -45,19 +45,32 @@ public class DefaultType : StructDefinition
 
         public static Integer GetObject(int size, bool isSigned)
             => (size, isSigned) switch
-                {
-                    (1, true) => SByte,
-                    (2, true) => Short,
-                    (4, true) => Int,
-                    (8, true) => Long,
-                    (1, false) => Byte,
-                    (2, false) => UShort,
-                    (4, false) => UInt,
-                    (8, false) => ULong,
-                    _ => throw new Exception("Invalid integer size"),
-                };
+            {
+                (1, true) => SByte,
+                (2, true) => Short,
+                (4, true) => Int,
+                (8, true) => Long,
+                (1, false) => Byte,
+                (2, false) => UShort,
+                (4, false) => UInt,
+                (8, false) => ULong,
+                _ => throw new Exception("Invalid integer size"),
+            };
 
         public override string ToString()
             => $"{(IsSigned ? "" : "U")}Integer({size})";
+    }
+
+    public class FloatingPoint : DefaultType
+    {
+        public static FloatingPoint Float = new("float", 4);
+        public static FloatingPoint Double = new("double", 8);
+        public static FloatingPoint Lit = new("!UnknownSizeFloat", 0);
+
+        protected FloatingPoint(string name, int size)
+            : base(name, size) { }
+
+        public override string ToString()
+            => $"FloatingPoint({size})";
     }
 }

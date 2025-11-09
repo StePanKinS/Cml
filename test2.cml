@@ -1,5 +1,5 @@
 
-external int printf(char* fmt, int a);
+external int printf(char* fmt, float a);
 
 int func(int a, int b, int c, int d, int e, int f)
 {
@@ -13,7 +13,7 @@ int func(int a, int b, int c, int d, int e, int f)
 
 export int main()
 {
-    printf("%d\n", func(1, 2, 3, 4, 5, 6));
+    printf("%f\n", func(1, 2, 3, 4, 5, 6) + 39.420);
 
     return 0;
 }
