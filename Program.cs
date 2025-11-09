@@ -13,6 +13,11 @@ string build_folder = args.Length > 0 ? args[0] : "/tmp";
 
 Lexer lexer = new(path);
 
+// foreach (var l in lexer.GetTokens())
+// {
+//     Console.WriteLine($"{l.Location}\t{l}");
+// }
+
 var glbNmsp = NamespaceDefinition.NewGlobal();
 StructDefinition.AddStandartTypes(glbNmsp);
 ErrorReporter errorer = new();

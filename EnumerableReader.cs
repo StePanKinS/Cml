@@ -30,12 +30,14 @@ public class EnumerableReader<T>
     {
         val = next;
 
+        bool ret = hasValue;
+
         if (enumerator.MoveNext())
             next = enumerator.Current;
         else
             hasValue = false;
 
-        return hasValue;
+        return ret;
     }
 
     public bool Read()

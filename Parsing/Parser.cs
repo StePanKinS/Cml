@@ -20,7 +20,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
     public void ParseDefinitions(Lexer l)
     {
-        EnumerableReader<Token> er = l.GetReader();
+        EnumerableReader<Token> er = l.GetTokens().GetReader();
         parseDefinitions(er, globalNamespace);
     }
 
