@@ -14,7 +14,10 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
         get
         {
             if (size == -1)
-                size = GetIntCount() * 8;
+            {
+                var (intCount, floatCount, _) = GetClassCount();
+                size = (intCount + floatCount) * 8;
+            }
             return size;
         }
     }
@@ -41,38 +44,45 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
         if (!Variables.Contains(variable))
             return Parent.GetVariableOffset(variable);
 
-        // int offset = 16; // Skip return address and old base pointer
-        // foreach (var v in Variables)
-        // {
-        //     if (v == variable)
-        //         return offset;
-        //     offset += (v.ValueType.Size + 7) & ~7;
-        // }
-
         int intCnt = 0;
+        int fltCnt = 0;
         int memCnt = 0;
-        bool memInt = false;
+        bool inMemory = false;
 
         foreach (var v in Variables)
         {
             if (v.ValueType is DefaultType.Integer || v.ValueType is Pointer)
-                if (intCnt == 6)
+            {
+                if (intCnt < 6)
+                    intCnt++;
+                else
                 {
                     memCnt++;
-                    memInt = true;
+                    if (variable.ValueType is DefaultType.Integer || variable.ValueType is Pointer)
+                        inMemory = true;
                 }
-                else
+            }
+            else if (v.ValueType is DefaultType.FloatingPoint)
+            {
+                if (fltCnt < 8)
                     intCnt++;
+                else
+                {
+                    memCnt++;
+                    if (variable.ValueType is DefaultType.FloatingPoint)
+                        inMemory = true;
+                }
+            }
             else
                 throw new NotImplementedException("Only integer and pointer argument types are supported");
 
 
             if (v == variable)
             {
-                if (memInt)
+                if (inMemory)
                     return 16 + (memCnt - 1) * 8;
                 else
-                    return - intCnt * 8;
+                    return - (intCnt + fltCnt) * 8;
             }
             
         }
@@ -97,15 +107,37 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
         return Parent.TryGet(name, out definition);
     }
 
-    public int GetIntCount()
+    public (int intCount, int floatCount, int stackCount) GetClassCount()
+        => GetClassCount(Variables.Select(i => i.ValueType));
+
+    public static (int intCount, int floatCount, int stackCount) GetClassCount(IEnumerable<StructDefinition> types)
     {
-        int count = 0;
-        foreach (var v in Variables.Select(v => v.ValueType))
+        int intCount = 0;
+        int floatCount = 0;
+        int stackCount = 0;
+
+        foreach (var i in types)
         {
-            if (v is DefaultType.Integer || v is Pointer)
-                count++;
+            if (i is DefaultType.Integer
+                || i is Pointer)
+            {
+                if (intCount < 6)
+                    intCount++;
+                else
+                    stackCount++;
+            }
+            else if (i is DefaultType.FloatingPoint)
+            {
+                if (floatCount < 8)
+                    floatCount++;
+                else
+                    stackCount++;
+            }
+            else
+                throw new Exception($"Unsupported type {i} in generateFunctionCall");
         }
-        return count;
+
+        return (intCount, floatCount, stackCount);
     }
 
     public bool TryGetType(string name, [MaybeNullWhen(false)] out StructDefinition type)

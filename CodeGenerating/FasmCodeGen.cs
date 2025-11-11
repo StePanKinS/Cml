@@ -5,12 +5,13 @@ namespace Cml.CodeGenerating;
 public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter errorer)
 {
     private NamespaceDefinition globalNamespace = globalNamespace;
-    private List<string> strings = [];
+    private List<string> stringLiterals = [];
+    private List<double> doubleLiterals = [];
     private int if_counter = 0;
     private int while_counter = 0;
 
 
-    private static readonly string[] Rregisters = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+    private static readonly string[] CallRegisters = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
 
     private static readonly Dictionary<BinaryOperationTypes, string> CompareOps = new()
     {
@@ -26,12 +27,19 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
     {
         { BinaryOperationTypes.Add,        "add"  },
         { BinaryOperationTypes.Subtract,   "sub"  },
-        { BinaryOperationTypes.Multiply,   "imul" },
+        { BinaryOperationTypes.Multiply,   "imul" }, // TODO: umul ?
         { BinaryOperationTypes.BitwiseAnd, "and"  },
         { BinaryOperationTypes.BitwiseOr,  "or"   },
         { BinaryOperationTypes.BitwiseXor, "xor"  },
         { BinaryOperationTypes.LeftShift,  "shl"  },
         { BinaryOperationTypes.RightShift, "shr"  },
+    };
+
+    private static readonly Dictionary<BinaryOperationTypes, string> FloatMathOps = new()
+    {
+        { BinaryOperationTypes.Add,        "addsd"  },
+        { BinaryOperationTypes.Subtract,   "subsd"  },
+        { BinaryOperationTypes.Multiply,   "mulsd" },
     };
 
     private static readonly Dictionary<int, string> RegisterSizes = new()
@@ -40,6 +48,14 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         { 2, "ax"  },
         { 4, "eax" },
         { 8, "rax" },
+    };
+
+    private static readonly Dictionary<int, string> MemorySizeNames = new()
+    {
+        { 1, "byte"  },
+        { 2, "word"  },
+        { 4, "dword" },
+        { 8, "qword" },
     };
 
 
@@ -56,16 +72,27 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         generateNamespace(globalNamespace, sb);
 
         sb.Append("section '.data' writeable\n");
+        sb.Append($"bit63 dq 1 shl 63\n");
         generateStrings(sb);
+        generateDoubles(sb);
+
 
         return sb.ToString();
+    }
+    
+    private void generateDoubles(StringBuilder sb)
+    {
+        for (int i = 0; i < doubleLiterals.Count; i++)
+        {
+            sb.Append($"double{i} dq {doubleLiterals[i]}\n");
+        }
     }
 
     private void generateStrings(StringBuilder sb)
     {
-        for (int i = 0; i < strings.Count; i++)
+        for (int i = 0; i < stringLiterals.Count; i++)
         {
-            string s = strings[i];
+            string s = stringLiterals[i];
             sb.Append($"str{i} db ");
             foreach (char c in s)
             {
@@ -128,9 +155,29 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         sb.Append("    push rbp\n");
         sb.Append("    mov rbp, rsp\n");
 
-        for (int i = 0; i < fn.Arguments.GetIntCount(); i++)
+        var (intCount, floatCount, _) = fn.Arguments.GetClassCount();
+        int ic = 0;
+        int fc = 0;
+
+        for (int i = 0; ic != intCount || fc != floatCount; i++)
         {
-            sb.Append($"    push {Rregisters[i]}\n");
+            StructDefinition itype = fn.Arguments.Variables[i].ValueType;
+            if ((itype is DefaultType.Integer || itype is Pointer)
+                && ic < intCount)
+                sb.Append($"    push {CallRegisters[ic++]}\n");
+            else if (itype is DefaultType.FloatingPoint fp
+                && fc < floatCount)
+            {
+                sb.Append($"    sub rsp, 8\n");
+                if (fp.Size == 4)
+                    sb.Append($"    movss [rsp], xmm{fc++}\n");
+                else if (fp.Size == 8)
+                    sb.Append($"    movsd [rsp], xmm{fc++}\n");
+                else
+                    throw new Exception($"Unsupported float size {fp.Size} in genFunc");
+            }
+            else
+                throw new Exception($"Unsupported type {itype} in genFunc");
         }
 
         generateExecutable(fn.Code, fn.Arguments, sb);
@@ -144,58 +191,67 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         sb.Append('\n');
     }
 
-    private int generateExecutable(Executable exe, INameContainer locals, StringBuilder sb)
+    private void generateExecutable(Executable exe, INameContainer locals, StringBuilder sb)
     {
         switch (exe)
         {
             case CodeBlock cb:
                 generateCodeBlock(cb, locals, sb);
-                return 0;
+                return;
 
             case FunctionCall fc:
                 generateFunctionCall(fc, locals, sb);
-                return 0;
+                return;
 
             case Identifyer id:
-                return generateIdentifyer(id, locals, sb);
+                generateIdentifyer(id, locals, sb);
+                return;
 
             case Literal<string> stringLit:
                 sb.Append($"        ; String literal {stringLit.Location}\n");
-                int count = strings.Count;
-                strings.Add(stringLit.Value);
-                sb.Append($"    lea rax, [str{count}]\n");
-                return 0;
+                int scount = stringLiterals.Count;
+                stringLiterals.Add(stringLit.Value);
+                sb.Append($"    lea rax, [str{scount}]\n");
+                return;
 
             case Literal<ulong> intLit:
                 sb.Append($"        ; Integer literal {intLit.Location}\n");
                 sb.Append($"    mov rax, {intLit.Value}\n");
-                return 0;
+                return;
 
             case Literal<bool> boolLit:
-                sb.Append($"        ; Bool literal {boolLit.Location}");
-                sb.Append($"    mov rax, {boolLit.Value.CompareTo(false)}");
-                return 0;
+                sb.Append($"        ; Bool literal {boolLit.Location}\n");
+                sb.Append($"    mov rax, {boolLit.Value.CompareTo(false)}\n");
+                return;
+
+            case Literal<double> doubleLit:
+                sb.Append($"        ; Double literal {doubleLit.Location}\n");
+                int dcount = doubleLiterals.Count;
+                doubleLiterals.Add(doubleLit.Value);
+                sb.Append($"    movsd xmm0, [double{dcount}]\n");
+                return;
+
 
             case BinaryOperation bo:
-                return generateBinaryOp(bo, locals, sb);
+                generateBinaryOp(bo, locals, sb);
+                return;
 
             case UnaryOperation uo:
-                return generateUnaryOP(uo, locals, sb);
+                generateUnaryOP(uo, locals, sb);
+                return;
 
             case Return ret:
                 sb.Append($"        ; return {ret.Location}\n");
                 generateExecutable(ret.Value, locals, sb);
-                // sb.Append($"        ; return end {ret.Location}\n");
                 sb.Append($"    mov rsp, rbp\n");
                 sb.Append($"    pop rbp\n");
                 sb.Append($"    ret\n");
-                return 0;
+                return;
 
             case ControlFlow cf:
                 int ifNum = if_counter++;
                 sb.Append($"        ; if {cf.Location}\n");
-                if (generateExecutable(cf.Condition, locals, sb) != 0)
-                    throw new Exception("wtf bool is bool not in rax");
+                generateExecutable(cf.Condition, locals, sb);
 
                 sb.Append($"    test rax, rax\n");
                 sb.Append($"    jz else_{ifNum}\n");
@@ -206,44 +262,60 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                     generateExecutable(cf.ElseBody, locals, sb);
 
                 sb.Append($"if_end_{ifNum}:\n");
-                return 0;
+                return;
 
             case WhileLoop wl:
                 int whileNum = while_counter++;
                 sb.Append($"        ; while loop {wl.Location}\n");
                 sb.Append($"while_{whileNum}:\n");
-                if (generateExecutable(wl.Condition, locals, sb) != 0)
-                    throw new Exception("wtf bool is bool not in rax");
+                generateExecutable(wl.Condition, locals, sb);
                 
                 sb.Append($"    test rax, rax\n");
                 sb.Append($"    jz while_end_{whileNum}\n");
                 generateExecutable(wl.Body, locals, sb);
                 sb.Append($"    jmp while_{whileNum}\n");
                 sb.Append($"while_end_{whileNum}:\n");
-                return 0;
+                return;
 
             default:
                 throw new NotImplementedException($"Code generation for {exe.GetType().Name} not implemented");
         }
     }
 
-    private int generateBinaryOp(BinaryOperation bo, INameContainer locals, StringBuilder sb)
+    private void generateBinaryOp(BinaryOperation bo, INameContainer locals, StringBuilder sb)
     {
         switch (bo.OperationType)
         {
             case BinaryOperationTypes.Assign:
                 sb.Append($"        ; Assign {bo.Location}\n");
-                if (generateExecutable(bo.Right, locals, sb) != 0)
-                    throw new Exception("Structs are not supported");
+                generateExecutable(bo.Right, locals, sb);
+                
                 if (bo.Left is Identifyer id && id.Definition is VariableDefinition variable)
                 {
                     int offset = locals.GetVariableOffset(variable);
-                    if (offset == 0)
-                        sb.Append($"    mov [{variable.FullName}], {RegisterSizes[variable.ValueType.Size]}\n");
+                    string target = offset == 0 ? variable.FullName : $"rbp {offset:+ 0;- 0}";
+
+                    if (bo.Right.ReturnType is DefaultType.Integer
+                        || bo.Right.ReturnType is Pointer)
+                        sb.Append($"    mov [{target}], {RegisterSizes[variable.ValueType.Size]}\n");
+                    else if (bo.Right.ReturnType is DefaultType.FloatingPoint fp)
+                    {
+                        if (fp.Size == 4)
+                        {
+                            sb.Append($"    cvtsd2ss xmm0, xmm0\n");
+                            sb.Append($"    movss [{target}], xmm0\n");
+                        }
+                        else if (fp.Size == 8)
+                            sb.Append($"    movsd [{target}], xmm0\n");
+                        else
+                            throw new Exception($"Unsupported float size {fp.Size} in assign");
+                    }
                     else
-                        sb.Append($"    mov [rbp {offset:+ 0;- 0}], {RegisterSizes[variable.ValueType.Size]}\n");
+                        throw new Exception($"Unsuported type {bo.Right.ReturnType} in assign");
+                    
+                    return;
                 }
-                return 0;
+                throw new Exception($"Unsupported lhs {bo.Left} in assign");
 
             case BinaryOperationTypes.Add:
             case BinaryOperationTypes.Subtract:
@@ -251,15 +323,29 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
             case BinaryOperationTypes.BitwiseAnd:
             case BinaryOperationTypes.BitwiseOr:
             case BinaryOperationTypes.BitwiseXor:
-            case BinaryOperationTypes.LeftShift:
-            case BinaryOperationTypes.RightShift:
                 sb.Append($"        ; {bo.OperationType} {bo.Location}\n");
-                generateExecutable(bo.Right, locals, sb);
-                sb.Append($"    push rax\n");
-                generateExecutable(bo.Left, locals, sb);
-                sb.Append($"    pop rbx\n");
-                sb.Append($"    {MathOps[bo.OperationType]} rax, rbx\n");
-                return 0;
+                if (bo.ReturnType is DefaultType.Integer)
+                {
+                    generateExecutable(bo.Right, locals, sb);
+                    sb.Append($"    push rax\n");
+                    generateExecutable(bo.Left, locals, sb);
+                    sb.Append($"    pop rbx\n");
+                    sb.Append($"    {MathOps[bo.OperationType]} rax, rbx\n");
+                }
+                else if (bo.ReturnType is DefaultType.FloatingPoint)
+                {
+                    generateExecutable(bo.Right, locals, sb);
+                    sb.Append($"    sub rsp, 8\n");
+                    sb.Append($"    movsd [rsp], xmm0\n");
+                    generateExecutable(bo.Left, locals, sb);
+                    sb.Append($"    movsd xmm1, [rsp]\n");
+                    sb.Append($"    add rsp, 8\n");
+                    sb.Append($"    {FloatMathOps[bo.OperationType]} xmm0, xmm1\n");
+                }
+                else
+                    throw new Exception($"Unsupported type {bo.ReturnType} in genBinary");
+
+                return;
 
             case BinaryOperationTypes.Less:
             case BinaryOperationTypes.LessEquals:
@@ -267,28 +353,63 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
             case BinaryOperationTypes.GreaterEquals:
             case BinaryOperationTypes.IsEquals:
             case BinaryOperationTypes.NotEquals:
-                sb.Append($"        ; Less {bo.Location}\n");
-                generateExecutable(bo.Right, locals, sb);
-                sb.Append($"    push rax\n");
-                generateExecutable(bo.Left, locals, sb);
-                sb.Append($"    pop rcx\n");
-                sb.Append($"    mov rbx, rax\n");
+                sb.Append($"        ; {bo.OperationType} {bo.Location}\n");
+
+                string compareOperation;
+
+                if (bo.Left.ReturnType is DefaultType.Integer)
+                {
+                    generateExecutable(bo.Right, locals, sb);
+                    sb.Append($"    push rax\n");
+                    generateExecutable(bo.Left, locals, sb);
+                    sb.Append($"    pop rcx\n");
+                    sb.Append($"    mov rbx, rax\n");
+                    compareOperation = $"    sub rbx, rcx\n";
+                }
+                else if (bo.Left.ReturnType is DefaultType.FloatingPoint)
+                {
+                    generateExecutable(bo.Right, locals, sb);
+                    sb.Append($"    sub rsp, 8\n");
+                    sb.Append($"    movsd [rsp], xmm0\n");
+                    generateExecutable(bo.Left, locals, sb);
+                    sb.Append($"    movsd xmm1, [rsp]\n");
+                    sb.Append($"    add rsp, 8\n");
+                    compareOperation = $"    comisd xmm1, xmm0\n";
+                }
+                else
+                    throw new Exception($"Unsupported type {bo.ReturnType} in genBinary");
+                
                 sb.Append($"    xor rax, rax\n");
                 sb.Append($"    mov rdx, 1\n");
-                sb.Append($"    sub rbx, rcx\n");
+                sb.Append(compareOperation);
                 string op = CompareOps[bo.OperationType];
                 sb.Append($"    cmov{op} rax, rdx\n");
-                return 0;
+                return;
 
             case BinaryOperationTypes.Divide:
                 sb.Append($"        ; Division {bo.Location}\n");
-                generateExecutable(bo.Right, locals, sb);
-                sb.Append($"    push rax\n");
-                generateExecutable(bo.Left, locals, sb);
-                sb.Append($"    pop rbx\n");
-                sb.Append($"    xor rdx, rdx\n");
-                sb.Append($"    idiv rbx\n");
-                return 0;
+                if (bo.ReturnType is DefaultType.Integer)
+                {
+                    generateExecutable(bo.Right, locals, sb);
+                    sb.Append($"    push rax\n");
+                    generateExecutable(bo.Left, locals, sb);
+                    sb.Append($"    pop rbx\n");
+                    sb.Append($"    xor rdx, rdx\n");
+                    sb.Append($"    idiv rbx\n");
+                }
+                else if (bo.ReturnType is DefaultType.FloatingPoint)
+                {
+                    generateExecutable(bo.Right, locals, sb);
+                    sb.Append($"    sub rsp, 8\n");
+                    sb.Append($"    movsd [rsp], xmm0\n");
+                    generateExecutable(bo.Left, locals, sb);
+                    sb.Append($"    movsd xmm1, [rsp]\n");
+                    sb.Append($"    add rsp, 8\n");
+                    sb.Append($"    divsd xmm0, xmm1\n");
+                }
+                else
+                    throw new Exception($"Unsupported type {bo.ReturnType} in genBinary");
+                return;
 
             case BinaryOperationTypes.Remainder:
                 sb.Append($"        ; Remainder {bo.Location}\n");
@@ -299,147 +420,229 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 sb.Append($"    xor rdx, rdx\n");
                 sb.Append($"    idiv rbx\n");
                 sb.Append($"    mov rax, rdx\n");
-                return 0;
+                return;
 
             default:
                 throw new NotImplementedException($"Binary operation {bo.OperationType} not implemented");
         }
     }
 
-    private int generateUnaryOP(UnaryOperation uo, INameContainer locals, StringBuilder sb)
+    private void generateUnaryOP(UnaryOperation uo, INameContainer locals, StringBuilder sb)
     {
         switch (uo.OperationType)
         {
             case UnaryOperationTypes.Cast:
                 sb.Append($"        ; Cast {uo.Location}\n");
-                if (uo.ReturnType is Pointer || uo.Operand.ReturnType is Pointer)
-                    return generateExecutable(uo.Operand, locals, sb);
-                if (uo.ReturnType is DefaultType.Integer tint
-                    && uo.Operand.ReturnType is DefaultType.Integer sint)
-                    return generateIntCast(sint, tint, uo.Operand, locals, sb);
-                throw new NotImplementedException("Only integer and pointer casts are implemented");
+                generateCsat(uo.Operand, uo.ReturnType, locals, sb);
+                return;
 
             case UnaryOperationTypes.GetReference:
-                        if (uo.Operand is not Identifyer ident
-                            || ident.Definition is not VariableDefinition variable)
-                            throw new Exception("Expecter variable identifier");
-                        sb.Append($"        ; GetReference {uo.Location}\n");
-                        int offset = locals.GetVariableOffset(variable);
-                        if (offset == 0)
-                            sb.Append($"    lea rax, [{variable.FullName}]\n");
-                        else
-                            sb.Append($"    lea rax, [rbp {offset:+ 0;- 0}]\n");
+                if (uo.Operand is not Identifyer ident
+                    || ident.Definition is not VariableDefinition variable)
+                    throw new Exception("Expected variable identifier");
 
-                        return 0;
+                sb.Append($"        ; GetReference {uo.Location}\n");
+                int offset = locals.GetVariableOffset(variable);
+                if (offset == 0)
+                    sb.Append($"    lea rax, [{variable.FullName}]\n");
+                else
+                    sb.Append($"    lea rax, [rbp {offset:+ 0;- 0}]\n");
 
-                    case UnaryOperationTypes.Minus:
-                        sb.Append($"        ; Unary minus {uo.Location}\n");
-                        if (generateExecutable(uo.Operand, locals, sb) != 0)
-                            throw new NotImplementedException("Structs are not supported");
-                        sb.Append($"    neg rax\n");
-                        return 0;
+                return;
 
-                    default:
-                        throw new NotImplementedException($"Unary operation {uo.OperationType}");
-                    }
+            case UnaryOperationTypes.Minus:
+                sb.Append($"        ; Unary minus {uo.Location}\n");
+                generateExecutable(uo.Operand, locals, sb);
+
+                if (uo.Operand.ReturnType is DefaultType.Integer)
+                    sb.Append($"    neg rax\n");
+                else if (uo.Operand.ReturnType is DefaultType.FloatingPoint)
+                    sb.Append($"    xorsd xmm0, [bit63]\n");
+                else
+                    throw new Exception($"Unknown type {uo.Operand.ReturnType} in unary minus");
+
+                return;
+
+            default:
+                throw new NotImplementedException($"Unary operation {uo.OperationType}");
         }
+    }
     
-    private int generateIntCast(DefaultType.Integer from, DefaultType.Integer to, Executable operand, INameContainer locals, StringBuilder sb)
+    private void generateCsat(Executable operand, StructDefinition target, INameContainer locals, StringBuilder sb)
     {
-        if (generateExecutable(operand, locals, sb) != 0)
-            throw new Exception("Structs are not supported");
-            
-        if (from.Size >= to.Size || from.Size == 0)
-            return 0; // No action needed for truncation
-
-        if (to.IsSigned ^ from.IsSigned || !to.IsSigned) // if different signedness or both unsigned
-            sb.Append($"    movzx {RegisterSizes[to.Size]}, {RegisterSizes[from.Size]}\n");
+        generateExecutable(operand, locals, sb);
+        if (operand.ReturnType is Pointer || target is Pointer)
+            return;
+        else if (target is DefaultType.Integer to
+            && operand.ReturnType is DefaultType.Integer from)
+        {
+            if (from.Size >= to.Size || from.Size == 0)
+                return; // No action needed for truncation
+            if (from.IsSigned && to.IsSigned)
+                sb.Append($"    movsx {RegisterSizes[to.Size]}, {RegisterSizes[from.Size]}\n");
+            if (to.Size == 8 && from.Size == 4)
+                sb.Append($"    mov eax, eax"); // movzx r64, r/m32 does not exist
+            else
+                sb.Append($"    movzx {RegisterSizes[to.Size]}, {RegisterSizes[from.Size]}\n");
+        }
+        else if (operand.ReturnType is DefaultType.FloatingPoint ff
+            && target is DefaultType.FloatingPoint ft)
+            return;
+        else if (operand.ReturnType is DefaultType.Integer
+            && target is DefaultType.FloatingPoint)
+            sb.Append($"    cvtsi2sd xmm0, rax\n"); // TODO: 64bit unsigned is ignored
+        else if (operand.ReturnType is DefaultType.FloatingPoint
+            && target is DefaultType.Integer)
+            sb.Append($"    cvtsd2si rax, xmm0\n");
         else
-            sb.Append($"    movsx {RegisterSizes[to.Size]}, {RegisterSizes[from.Size]}\n");
+            throw new NotImplementedException("Only integer, pointer ans float casts are implemented");
 
-        return 0;
+        return;
+    }
+    
+    private void generateIntCast(DefaultType.Integer from, DefaultType.Integer to, Executable operand, INameContainer locals, StringBuilder sb)
+    {
     }
 
     private void generateCodeBlock(CodeBlock cb, INameContainer locals, StringBuilder sb)
     {
-        if (cb.ReturnType.Size > 8)
-            throw new Exception("Return type size greater than 8 bytes not supported");
-
         sb.Append($"        ; Code block start {cb.Location}\n");
-        sb.Append($"    sub rsp, {cb.Locals.SelfSize}\n"); ;
+
+        if (cb.Locals.SelfSize != 0)
+            sb.Append($"    sub rsp, {cb.Locals.SelfSize}\n");
+
         foreach (var c in cb.Code)
             generateExecutable(c, cb.Locals, sb);
 
-        sb.Append($"        ; Code block end {cb.Location}\n");
-        sb.Append($"    add rsp, {cb.Locals.SelfSize}\n");
+        if (cb.Locals.SelfSize != 0)
+        {
+            sb.Append($"        ; Code block end {cb.Location}\n");
+            sb.Append($"    add rsp, {cb.Locals.SelfSize}\n");
+        }
     }
 
     private void generateFunctionCall(FunctionCall fc, INameContainer locals, StringBuilder sb)
     {
         sb.Append($"        ; Function call {fc.Location}\n");
-        // SysV AMD64 calling convention: first 6 integer/pointer args in registers (rdi,rsi,rdx,rcx,r8,r9),
-        // remaining args pushed on the stack. Evaluate args in the same order as before (last -> first).
-        int totalArgs = fc.Args.Length;
-        int stackArgs = Math.Max(0, totalArgs - 6);
-        int stackBytes = stackArgs * 8;
-        // To keep RSP 16-byte aligned at the call, if stackBytes % 16 == 8 we need an extra 8-byte pad.
-        int pad = (stackBytes % 16 == 8) ? 8 : 0;
-        if (pad > 0)
-            sb.Append($"    sub rsp, {pad}    ; call alignment pad\n");
 
-        for (int i = totalArgs - 1; i >= 0; i--)
+        // SysV AMD64 calling convention: 
+        // first 6 integer/pointer args in registers (rdi,rsi,rdx,rcx,r8,r9),
+        // first 8 float in regs xmm0-xmm7,
+        // remaining args pushed on the stack.
+        // regs args order is first arg in first reg,
+        // on stack last argument is on higher memory address
+        // stack should be 16-byte alligned, padding is added if needed
+        // as it would be the last argument
+        
+
+        var (intCount, floatCount, stackCount) = FunctionArguments.GetClassCount(fc.Args.Select(i => i.ReturnType));
+        
+
+        bool pad = stackCount % 2 == 1;
+        if (pad)
+            sb.Append($"    sub rsp, 8\n");
+
+        // push all args on stack to prevent overriding 
+        // thier value during evaluetion of other args
+        for (int i = fc.Args.Length - 1; i >= 0; i--)
         {
-            if (generateExecutable(fc.Args[i], locals, sb) != 0)
-                throw new Exception("Error in argument evaluation");
+            generateExecutable(fc.Args[i], locals, sb);
 
-            if (i < 6)
+            if (fc.Args[i].ReturnType is DefaultType.Integer
+                || fc.Args[i].ReturnType is Pointer)
+                sb.Append($"    push rax\n");
+            else if (fc.Args[i].ReturnType is DefaultType.FloatingPoint fp)
             {
-                sb.Append($"    mov {Rregisters[i]}, rax\n");
+                sb.Append($"    sub rsp, 8\n");
+                sb.Append($"    movsd [rsp], xmm0\n");
             }
             else
-            {
-                sb.Append("    push rax\n");
-            }
+                throw new Exception($"Unknown type {fc.Args[i].ReturnType} in generateFunctionCall");
         }
 
-        if (generateExecutable(fc.FunctionPointer, locals, sb) != 0)
-            throw new Exception("Error in function pointer calculation");
-        sb.Append("    call rax\n");
+        // pop back args that should be in rags
+        int ic = 0;
+        int flc = 0;
+        for (int i = 0; ic != intCount || flc != floatCount; i++)
+        {
+            if (fc.Args[i].ReturnType is DefaultType.Integer
+                || fc.Args[i].ReturnType is Pointer)
+                sb.Append($"    pop {CallRegisters[ic++]}\n");
+            else if (fc.Args[i].ReturnType is DefaultType.FloatingPoint fp)
+            {
+                sb.Append($"    movsd xmm{flc}, [rsp]\n");
+                sb.Append($"    add rsp, 8\n");
+
+                if (fp.Size == 4)
+                    sb.Append($"    cvtsd2ss xmm{flc}, xmm{flc}\n");
+                else if (fp.Size != 8)
+                    throw new Exception($"Unknown float size {fp.Size} in genFuncCall");
+
+                flc++;
+            }
+            else
+                throw new Exception($"Unsupported type {fc.Args[i].ReturnType} in genFuncCall");
+        }
+
+        generateExecutable(fc.FunctionPointer, locals, sb);
+        sb.Append($"    mov rbx, rax\n");
+        sb.Append($"    mov rax, {floatCount}\n");
+        sb.Append($"    call rbx\n");
+
         // clean up pushed stack arguments and any padding
-        if (stackBytes + pad > 0)
-            sb.Append($"    add rsp, {stackBytes + pad}\n");
+        int stackSize = (stackCount + (pad ? 1 : 0)) * 8;
+        if (stackSize > 0)
+            sb.Append($"    add rsp, {stackSize}\n");
     }
 
-    private int generateIdentifyer(Identifyer id, INameContainer locals, StringBuilder sb)
+    private void generateIdentifyer(Identifyer id, INameContainer locals, StringBuilder sb)
     {
         sb.Append($"        ; Identifyer {id.Location}\n");
         if (id.Definition is VariableDefinition varDef)
         {
-            if (varDef.ValueType.Size > 8)
-                throw new Exception("Variable size greater than 8 bytes not supported");
-
             int offset = locals.GetVariableOffset(varDef);
             string source;
             if (offset == 0)
                 source = id.Definition.Name;
             else
                 source = $"rbp {offset:+ 0;- 0}";
-            if (varDef.ValueType.Size != 8)
-                sb.Append($"    xor rax, rax\n");
-            sb.Append($"    mov {RegisterSizes[varDef.ValueType.Size]}, [{source}]\n");
+
+            if (varDef.ValueType is Pointer)
+                sb.Append($"    mov rax, [{source}]\n");
+            else if (varDef.ValueType is DefaultType.Integer it)
+            {
+                if (it.Size == 8)
+                    sb.Append($"    mov rax, [{source}]\n");
+                else
+                {
+                    if (!it.IsSigned)
+                    {
+                        sb.Append($"    xor rax, rax\n");
+                        sb.Append($"    mov {RegisterSizes[varDef.ValueType.Size]}, [{source}]\n");
+                    }
+                    else
+                        sb.Append($"    movsx{(it.Size == 4 ? 'd' : "")} rax, {MemorySizeNames[it.Size]} [{source}]\n");
+                }
+            }
+            else if (varDef.ValueType is DefaultType.FloatingPoint fp)
+            {
+                if (fp.Size == 4)
+                {
+                    sb.Append($"    movss xmm0, [{source}]\n");
+                    sb.Append($"    cvtss2sd xmm0, xmm0\n");
+                }
+                else if (fp.Size == 8)
+                    sb.Append($"    movsd xmm0, [{source}]\n");
+                else
+                    throw new Exception($"Unknown float size {fp.Size} in genIdent");
+            }
+            else
+                throw new Exception($"Can not load {varDef.ValueType.FullName} type into register");
+
         }
         else if (id.Definition is FunctionDefinition fnDef)
-        {
             sb.Append($"    lea rax, [{fnDef.FullName}]\n");
-        }
         else
-            throw new Exception("Identifyer definition is not a variable or function");
-        return 0;
-    }
-
-    private static int Align(int value, int align)
-    {
-        if (align <= 0) return value;
-        return (value + align - 1) / align * align;
+            throw new Exception("Identifyer is not a variable or function");
     }
 }

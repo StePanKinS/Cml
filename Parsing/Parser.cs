@@ -912,7 +912,6 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             case BinaryOperationTypes.Subtract:
             case BinaryOperationTypes.Multiply:
             case BinaryOperationTypes.Divide:
-            case BinaryOperationTypes.Remainder:
                 var t = getLeastCommonType(left.ReturnType, right.ReturnType);
                 var l = promoteToType(left, t);
                 var r = promoteToType(right, t);
@@ -923,6 +922,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 returnType = t!;
                 break;
 
+            case BinaryOperationTypes.Remainder:
             case BinaryOperationTypes.BitwiseAnd:
             case BinaryOperationTypes.BitwiseOr:
             case BinaryOperationTypes.BitwiseXor:
