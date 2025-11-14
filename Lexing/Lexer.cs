@@ -202,6 +202,9 @@ public class Lexer(string fileName)
                     {
                         lt.NextCol();
                         acum += c;
+                        endAcum();
+                        state = LexerState.Default;
+                        continue;
                     }
                     endAcum();
                     goto case LexerState.Default;

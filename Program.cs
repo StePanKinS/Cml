@@ -7,7 +7,7 @@ global using Cml.Lexing;
 global using Cml.Errors;
 using System.Diagnostics;
 
-string path = @"test2.cml";
+string path = @"test.cml";
 
 string build_folder = args.Length > 0 ? args[0] : "/tmp";
 

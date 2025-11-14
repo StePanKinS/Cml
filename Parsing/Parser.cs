@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 
 namespace Cml.Parsing;
@@ -628,7 +629,6 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                         e = promoted;
                 }
 
-
                 returnType = e.ReturnType;
                 return new Return(e, new Location(kwdToken.Location, e.Location));
             }
@@ -648,7 +648,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     errorer.Append("Con not parse condition", kwdToken.Location);
                     cond = new Nop(kwdToken.Location);
                 }
-                if (cond.ReturnType != DefaultType.Bool)
+                else if (cond.ReturnType != DefaultType.Bool)
                     errorer.Append($"Expected bool type, not {cond.ReturnType}", cond.Location);
                     
                 tokens.Read();
@@ -675,7 +675,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     errorer.Append("Con not parse condition", kwdToken.Location);
                     cond = new Nop(kwdToken.Location);
                 }
-                if (cond.ReturnType != DefaultType.Bool)
+                else if (cond.ReturnType != DefaultType.Bool)
                 {
                     errorer.Append($"Expected bool type, not {cond.ReturnType}", cond.Location);
                 }
@@ -839,7 +839,10 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 Executable? rhs = parseExpression(tokens, nameCtx, funcDef, PrefixOpBP, endSymbols, false);
                 if (rhs == null)
                     return null;
-                lhs = new UnaryOperation(value, rhs, rhs.ReturnType, new Location(symbolToken.Location, rhs.Location));
+                StructDefinition? retType = getPrefixOperationReturnType(value, rhs);
+                if (retType == null)
+                    return null;
+                lhs = new UnaryOperation(value, rhs, retType, new Location(symbolToken.Location, rhs.Location));
             }
             else
                 return null;
@@ -888,6 +891,46 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         }
     }
 
+    private StructDefinition? getPrefixOperationReturnType(UnaryOperationTypes op, Executable operand)
+    {
+        switch (op)
+        {
+            case UnaryOperationTypes.Cast:
+                throw new UnreachableException("Cast is special case");
+            case UnaryOperationTypes.Dereference:
+                if (operand.ReturnType is not Pointer ptr)
+                {
+                    errorer.Append($"Dereferencing is applicable only to pointers, not `{operand.ReturnType}`", operand.Location);
+                    return null;
+                }
+                return ptr.PointsTo;
+            case UnaryOperationTypes.GetReference:
+                if (operand is not Identifyer ident)
+                {
+                    errorer.Append("Can take reference only from identifier", operand.Location);
+                    return null;
+                }
+                return new Pointer(ident.ReturnType);
+            case UnaryOperationTypes.Inverse:
+                if (operand.ReturnType != DefaultType.Bool)
+                {
+                    errorer.Append($"Type missmatch: expected bool, given {operand.ReturnType}", operand.Location);
+                    return null;
+                }
+                return DefaultType.Bool;
+            case UnaryOperationTypes.Minus:
+                if (operand.ReturnType is not DefaultType.Integer
+                    && operand.ReturnType is not DefaultType.FloatingPoint)
+                {
+                    errorer.Append($"Inverse expects integer or floating point type, not {operand.ReturnType}", operand.Location);
+                    return null;
+                }
+                return operand.ReturnType;
+            default:
+                throw new Exception($"Unknown prefix operation {op}");
+        }
+    }
+
     private Executable? verifyBinaryOperation(Executable left, BinaryOperationTypes op, Executable right)
     {
         StructDefinition? returnType;
@@ -923,19 +966,32 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 break;
 
             case BinaryOperationTypes.Remainder:
+                if (left.ReturnType is not DefaultType.Integer li
+                    || right.ReturnType is not DefaultType.Integer ri)
+                {
+                    errorer.Append("Remainder operation can be applyed to only integer types", new Location(left.Location, right.Location));
+                    return null;
+                }
+                int size = Math.Max(li.Size, ri.Size);
+                if (li.Size != size)
+                    left = promoteToType(left, DefaultType.Integer.GetObject(size, li.IsSigned))!;
+                if (ri.Size != size)
+                    right = promoteToType(right, DefaultType.Integer.GetObject(size, ri.IsSigned))!;
+                returnType = li;
+                break;
+                
             case BinaryOperationTypes.BitwiseAnd:
             case BinaryOperationTypes.BitwiseOr:
             case BinaryOperationTypes.BitwiseXor:
                 if (left.ReturnType is not DefaultType.Integer lint
-                    || right.ReturnType is not DefaultType.Integer rint)
+                    || right.ReturnType is not DefaultType.Integer rint
+                    || lint != rint)
+                {
+                    errorer.Append("Bitwise operations can be applyed only to same integer types", new Location(left.Location, right.Location));
                     return null;
-
-                int size = Math.Max(lint.Size, rint.Size);
-                if (lint.Size != size)
-                    left = promoteToType(left, DefaultType.Integer.GetObject(size, lint.IsSigned))!;
-                if (rint.Size != size)
-                    right = promoteToType(right, DefaultType.Integer.GetObject(size, rint.IsSigned))!;
-                returnType = DefaultType.Integer.GetObject(size, false);
+                }
+                
+                returnType = lint;
                 break;
 
             case BinaryOperationTypes.Less:
@@ -1153,7 +1209,10 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         if (e == null)
             return null;
         if (!checkTypeCast(e.ReturnType, type))
+        {
+            errorer.Append($"Can not cast `{e.ReturnType}` to `{type}`", e.Location);
             return null;
+        }
 
         Location loc = new(startLoc, e.Location);
 
