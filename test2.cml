@@ -10,9 +10,9 @@ struct st
 export int main()
 {
     st s;
-    s.l = 256;
-    s.h = 0;
-    printf("%d\n", *(long*)&s);
+    s.l = 0;
+    s.h = 1;
+    printf("%llu\n", *(long*)&s);
 
     return 0;
-}
+} 

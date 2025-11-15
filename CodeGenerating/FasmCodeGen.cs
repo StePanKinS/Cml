@@ -277,9 +277,22 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 sb.Append($"while_end_{whileNum}:\n");
                 return;
 
+            case GetMember gm:
+                generateGetMember(gm, locals, sb);
+                return;
+
             default:
                 throw new NotImplementedException($"Code generation for {exe.GetType().Name} not implemented");
         }
+    }
+
+    private void generateGetMember(GetMember gm, INameContainer locals, StringBuilder sb)
+    {
+        sb.Append($"        ; GetMember {gm.Location}\n");
+        generateExecutable(gm.Operand, locals, sb);
+        int offset = gm.Operand.ReturnType.GetMemberOffset(gm.Member.Value);
+        var targetType = gm.Operand.ReturnType.GetStructMember(gm.Member.Value)!.Type;
+        loadValue($"rax + {offset}", targetType, locals, sb);
     }
 
     private void generateBinaryOp(BinaryOperation bo, INameContainer locals, StringBuilder sb)
@@ -289,33 +302,51 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
             case BinaryOperationTypes.Assign:
                 sb.Append($"        ; Assign {bo.Location}\n");
                 generateExecutable(bo.Right, locals, sb);
+                string target;
                 
                 if (bo.Left is Identifyer id && id.Definition is VariableDefinition variable)
                 {
                     int offset = locals.GetVariableOffset(variable);
-                    string target = offset == 0 ? variable.FullName : $"rbp {offset:+ 0;- 0}";
-
-                    if (bo.Right.ReturnType is DefaultType.Integer
-                        || bo.Right.ReturnType is Pointer)
-                        sb.Append($"    mov [{target}], {RegisterSizes[variable.ValueType.Size]}\n");
-                    else if (bo.Right.ReturnType is DefaultType.FloatingPoint fp)
-                    {
-                        if (fp.Size == 4)
-                        {
-                            sb.Append($"    cvtsd2ss xmm0, xmm0\n");
-                            sb.Append($"    movss [{target}], xmm0\n");
-                        }
-                        else if (fp.Size == 8)
-                            sb.Append($"    movsd [{target}], xmm0\n");
-                        else
-                            throw new Exception($"Unsupported float size {fp.Size} in assign");
-                    }
-                    else
-                        throw new Exception($"Unsuported type {bo.Right.ReturnType} in assign");
-                    
-                    return;
+                    target = offset == 0 ? variable.FullName : $"rbp {offset:+ 0;- 0}";
                 }
-                throw new Exception($"Unsupported lhs {bo.Left} in assign");
+                else if (bo.Left is GetMember gm)
+                {
+                    sb.Append($"    push rax\n");
+                    generateExecutable(gm.Operand, locals, sb);
+                    int offset = gm.Operand.ReturnType.GetMemberOffset(gm.Member.Value);
+                    sb.Append($"    mov rbx, rax\n");
+                    sb.Append($"    add rbx, {offset}\n");
+                    sb.Append($"    pop rax\n");
+                    target = "rbx";
+                }
+                else
+                    throw new Exception($"Unsupported lhs {bo.Left} in assign");
+                
+                if (bo.Right.ReturnType is DefaultType.Integer
+                    || bo.Right.ReturnType is Pointer)
+                    sb.Append($"    mov [{target}], {RegisterSizes[bo.Right.ReturnType.Size]}\n");
+                else if (bo.Right.ReturnType is DefaultType.FloatingPoint fp)
+                {
+                    if (fp.Size == 4)
+                    {
+                        sb.Append($"    cvtsd2ss xmm0, xmm0\n");
+                        sb.Append($"    movss [{target}], xmm0\n");
+                    }
+                    else if (fp.Size == 8)
+                        sb.Append($"    movsd [{target}], xmm0\n");
+                    else
+                        throw new Exception($"Unsupported float size {fp.Size} in assign");
+                }
+                else
+                {
+                    sb.Append($"    lea rdi, [{target}]\n");
+                    sb.Append($"    mov rsi, rax\n");
+                    sb.Append($"    mov rcx, {bo.Left.ReturnType.Size}\n");
+                    sb.Append($"    rep movsb\n");
+                    sb.Append($"    mov rax, rdi\n");
+                }
+
+                return;
 
             case BinaryOperationTypes.Add:
             case BinaryOperationTypes.Subtract:
@@ -463,6 +494,12 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
 
                 return;
 
+            case UnaryOperationTypes.Dereference:
+                sb.Append($"        ; Unary operation dereference {uo.Location}\n");
+                generateExecutable(uo.Operand, locals, sb);
+                loadValue("rax", uo.ReturnType, locals, sb);
+                return;
+
             default:
                 throw new NotImplementedException($"Unary operation {uo.OperationType}");
         }
@@ -498,10 +535,6 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
             throw new NotImplementedException("Only integer, pointer ans float casts are implemented");
 
         return;
-    }
-    
-    private void generateIntCast(DefaultType.Integer from, DefaultType.Integer to, Executable operand, INameContainer locals, StringBuilder sb)
-    {
     }
 
     private void generateCodeBlock(CodeBlock cb, INameContainer locals, StringBuilder sb)
@@ -607,42 +640,46 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
             else
                 source = $"rbp {offset:+ 0;- 0}";
 
-            if (varDef.ValueType is Pointer)
-                sb.Append($"    mov rax, [{source}]\n");
-            else if (varDef.ValueType is DefaultType.Integer it)
-            {
-                if (it.Size == 8)
-                    sb.Append($"    mov rax, [{source}]\n");
-                else
-                {
-                    if (!it.IsSigned)
-                    {
-                        sb.Append($"    xor rax, rax\n");
-                        sb.Append($"    mov {RegisterSizes[varDef.ValueType.Size]}, [{source}]\n");
-                    }
-                    else
-                        sb.Append($"    movsx{(it.Size == 4 ? 'd' : "")} rax, {MemorySizeNames[it.Size]} [{source}]\n");
-                }
-            }
-            else if (varDef.ValueType is DefaultType.FloatingPoint fp)
-            {
-                if (fp.Size == 4)
-                {
-                    sb.Append($"    movss xmm0, [{source}]\n");
-                    sb.Append($"    cvtss2sd xmm0, xmm0\n");
-                }
-                else if (fp.Size == 8)
-                    sb.Append($"    movsd xmm0, [{source}]\n");
-                else
-                    throw new Exception($"Unknown float size {fp.Size} in genIdent");
-            }
-            else
-                throw new Exception($"Can not load {varDef.ValueType.FullName} type into register");
-
+            loadValue(source, varDef.ValueType, locals, sb);
         }
         else if (id.Definition is FunctionDefinition fnDef)
             sb.Append($"    lea rax, [{fnDef.FullName}]\n");
         else
             throw new Exception("Identifyer is not a variable or function");
+    }
+
+    private void loadValue(string source, StructDefinition valueType, INameContainer locals, StringBuilder sb)
+    {
+        if (valueType is Pointer)
+            sb.Append($"    mov rax, [{source}]\n");
+        else if (valueType is DefaultType.Integer it)
+        {
+            if (it.Size == 8)
+                sb.Append($"    mov rax, [{source}]\n");
+            else
+            {
+                if (!it.IsSigned)
+                {
+                    sb.Append($"    xor rax, rax\n");
+                    sb.Append($"    mov {RegisterSizes[valueType.Size]}, [{source}]\n");
+                }
+                else
+                    sb.Append($"    movsx{(it.Size == 4 ? 'd' : "")} rax, {MemorySizeNames[it.Size]} [{source}]\n");
+            }
+        }
+        else if (valueType is DefaultType.FloatingPoint fp)
+        {
+            if (fp.Size == 4)
+            {
+                sb.Append($"    movss xmm0, [{source}]\n");
+                sb.Append($"    cvtss2sd xmm0, xmm0\n");
+            }
+            else if (fp.Size == 8)
+                sb.Append($"    movsd xmm0, [{source}]\n");
+            else
+                throw new Exception($"Unknown float size {fp.Size} in genIdent");
+        }
+        else
+            sb.Append($"    lea rax, [{source}]\n");
     }
 }
