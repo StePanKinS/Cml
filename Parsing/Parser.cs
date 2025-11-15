@@ -172,7 +172,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 return;
             }
 
-            if (members.Select(m => m.name).Count() != 0)
+            if (members.Where(m => m.name.Value == memName.Value).Any())
                 errorer.Append($"Struct member with this name `{memName.Value}` already exists", memName.Location);
             else
                 members.Add((memType, memName));
@@ -806,7 +806,12 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
         Executable? lhs;
 
-        if (tryGetImmidiateValue(token, tokens, nameCtx, funcDef, endSymbols, out lhs))
+        if (token.Type == TokenType.Unknown)
+        {
+            errorer.Append(((Token<string>)token).Value, token.Location);
+            return null;
+        }
+        else if (tryGetImmidiateValue(token, tokens, nameCtx, funcDef, endSymbols, out lhs))
         {
             if (lhs == null)
                 return null;
@@ -817,7 +822,10 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             if (symbolToken.Value == Symbols.CircleOpen)
             {
                 if (!tokens.Peek(out t))
+                {
+                    errorer.Append("Unexpected file end", t!.Location);
                     return null;
+                }
                 if (t.Type == TokenType.Identifier &&
                     nameCtx.TryGetType(((Token<string>)t).Value, out var castType))
                 {
@@ -829,7 +837,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     lhs = parseExpression(tokens, nameCtx, funcDef, int.MinValue, [Symbols.CircleClose], false);
                     if (!tokens.Read(out t) || t.Type != TokenType.Symbol || ((Token<Symbols>)t).Value != Symbols.CircleClose)
                     {
-                        // errorer.Append("Expected `)`", loc);
+                        errorer.Append("Closing bracket `)` is not found", new Location(symbolToken, t!));
                         return null;
                     }
                 }
@@ -845,7 +853,15 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 lhs = new UnaryOperation(value, rhs, retType, new Location(symbolToken.Location, rhs.Location));
             }
             else
+            {
+                errorer.Append($"Unexpected symbol {symbolToken}", symbolToken.Location);
                 return null;
+            }
+        }
+        else
+        {
+            errorer.Append($"Unexpected token {token}", token.Location);
+            return null;
         }
 
         if (lhs == null)
@@ -856,12 +872,21 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             if (!tokens.Peek(out token))
                 return lhs;
             if (token.Type != TokenType.Symbol)
+            {
+                errorer.Append($"Expected symbol. `{token}` is found", token.Location);
                 return null;
+            }
 
             var symbolToken = (Token<Symbols>)token;
             if (symbolToken.Value == Symbols.CircleOpen)
             {
                 lhs = parseFuncCall(lhs, tokens, nameCtx, funcDef);
+                if (lhs == null)
+                    return null;
+            }
+            else if (symbolToken.Value == Symbols.Dot)
+            {
+                lhs = parseDot(lhs, tokens, nameCtx, funcDef);
                 if (lhs == null)
                     return null;
             }
@@ -887,7 +912,10 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 return lhs;
             }
             else
+            {
+                errorer.Append($"Expected symbol of binary operation, end symbol or `(` for function call. `{token}` is found", token.Location);
                 return null;
+            }
         }
     }
 
@@ -937,18 +965,30 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         switch (op)
         {
             case BinaryOperationTypes.Assign:
-                if (left is not Identifyer lhsIdent
-                || lhsIdent.Definition is not VariableDefinition varDef)
-                    return null;
-                if (varDef.ValueType != right.ReturnType)
+                StructDefinition targetType;
+                if (left is Identifyer lhsIdent
+                    && lhsIdent.Definition is VariableDefinition varDef)
+                    targetType = varDef.ValueType;
+                else if (left is GetMember gm)
+                    targetType = gm.ReturnType;
+                else
                 {
-                    var promoted = promoteToType(right, varDef.ValueType);
+                    errorer.Append($"Unexpected lhs {left}", left.Location);
+                    return null;
+                }
+                
+                if (targetType != right.ReturnType)
+                {
+                    var promoted = promoteToType(right, targetType);
                     if (promoted == null)
+                    {
+                        errorer.Append($"Type missmatch: expected {targetType}, got {right.ReturnType}", right.Location);
                         return null;
+                    }
                     right = promoted;
                 }
 
-                returnType = varDef.ValueType;
+                returnType = targetType;
                 break;
                 
             case BinaryOperationTypes.Add:
@@ -959,7 +999,10 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 var l = promoteToType(left, t);
                 var r = promoteToType(right, t);
                 if (l == null || r == null)
+                {
+                    errorer.Append($"Cant do math with types {left.ReturnType} and {right.ReturnType}", new Location(left.Location, right.Location));
                     return null;
+                }
                 left = l;
                 right = r;
                 returnType = t!;
@@ -1004,7 +1047,10 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 var le = promoteToType(left, type);
                 var re = promoteToType(right, type);
                 if (le == null || re == null)
+                {
+                    errorer.Append($"Cant compare types {left.ReturnType} and {right.ReturnType}", new Location(left.Location, right.Location));
                     return null;
+                }
                 left = le;
                 right = re;
                 returnType = DefaultType.Bool;
@@ -1078,12 +1124,31 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             return null;
     }
 
+    private Executable? parseDot(Executable lhs, EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef)
+    {
+        tokens.Read();
+        if (!tokens.Read(out var token) || token.Type != TokenType.Identifier)
+        {
+            errorer.Append($"Expected member name, not {token}", token!.Location);
+            return null;
+        }
+        var nameToken = (Token<string>)token;
+        var member = lhs.ReturnType.GetStructMember(nameToken.Value);
+        if (member == null)
+        {
+            errorer.Append($"Member with name {nameToken.Value} doesnt exist in type {lhs.ReturnType}", nameToken.Location);
+            return null;
+        }
+
+        return new GetMember(lhs, nameToken, member.Type, new Location(lhs.Location, nameToken.Location));
+    }
+
     private Executable? parseFuncCall(Executable lhs, EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef)
     {
         tokens.Read();
         if (lhs.ReturnType is not FunctionPointer funcPtr)
         {
-            // errorer.Append("Can not call non-function value", lhs.Location);
+            errorer.Append("Can not call non-function value", lhs.Location);
             return null;
         }
         Location loc = funcPtr.Location;
@@ -1091,7 +1156,10 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         while (true)
         {
             if (!tokens.Peek(out var token))
+            {
+                errorer.Append("Unexpected end of file", token!.Location);
                 return null;
+            }
             if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleClose)
             {
                 loc = new(loc, token.Location);
@@ -1099,8 +1167,15 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 break;
             }
             Executable? e = parseExpression(tokens, nameCtx, funcDef, 0, [Symbols.CircleClose, Symbols.Comma], false);
-            if (e == null || args.Count == funcPtr.Args.Length)
+            if (e == null)
                 return null;
+                
+            if (args.Count == funcPtr.Args.Length)
+            {
+                errorer.Append($"Too many arguments provided. {funcPtr.Args.Length} expected", lhs.Location);
+                return null;
+            }
+
             Executable? exe = promoteToType(e, funcPtr.Args[args.Count]);
             if (exe == null)
             {
@@ -1110,7 +1185,10 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             args.Add(exe);
 
             if (!tokens.Peek(out token))
+            {
+                errorer.Append("Unexpected end of file", token!.Location);
                 return null;
+            }
             if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.Comma)
                 tokens.Read();
         }
@@ -1141,19 +1219,25 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         if (!nameCtx.TryGet(ident.Value, out def))
             return false;
 
-        if (def is StructDefinition)
+        if (def is StructDefinition type)
         {
             Location location = token.Location;
-            nameCtx.TryGetType(((Token<string>)token).Value, out var type);
-            if (!tokens.Read(out token!))
+            
+            if (!tokens.Read(out token!)
+                || token.Type != TokenType.Identifier)
+            {
+                errorer.Append($"Expected variable name. {token} is found", token.Location);
                 return true;
-            if (token.Type != TokenType.Identifier)
-                return true;
+            }
 
             location = new(location, token.Location);
-            VariableDefinition varDef = new(((Token<string>)token).Value, type!, funcDef, [], location);
+            VariableDefinition varDef = new(((Token<string>)token).Value, type, funcDef, [], location);
             if (!nameCtx.Append(varDef))
+            {
+                errorer.Append($"Variable with name {varDef.Name} already exists", varDef.Location);
                 return true;
+            }
+
             executable = new Identifyer(varDef, varDef.ValueType, token.Location);
             return true;
         }

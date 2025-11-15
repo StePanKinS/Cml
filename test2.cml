@@ -1,19 +1,18 @@
 
-external int printf(char* fmt, float a);
+external int printf(char* fmt, long a);
 
-int func(int a, int b, int c, int d, int e, int f)
+struct st
 {
-    int ab = a + b;
-    if (ab < a)
-        return -1;
-    int cd = c - d;
-    int ef = e * f;
-    return ab + cd + ef;
+    int l,
+    int h,
 }
 
 export int main()
 {
-    printf("%f\n", func(1, 2, 3, 4, 5, 6) + 39.420);
+    st s;
+    s.l = 256;
+    s.h = 0;
+    printf("%d\n", *(long*)&s);
 
     return 0;
 }
