@@ -1,5 +1,9 @@
 
-external int printf(char* fmt, long a);
+namespace clib
+{
+    external int printf(char* fmt, long a);
+    export void f() {}
+}
 
 struct st
 {
@@ -12,7 +16,7 @@ export int main()
     st s;
     s.l = 0;
     s.h = 1;
-    printf("%llu\n", *(long*)&s);
+    clib.printf("%llu\n", *(long*)&s);
 
     return 0;
 } 

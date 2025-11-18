@@ -714,6 +714,25 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             Location location = new(token, t!);
             ret = new Nop(location);
             errorer.Append("Can not parse expression", location);
+            while (true)
+            {
+                if (!tokens.Peek(out token))
+                    break;
+
+                if (token.Type == TokenType.Symbol)
+                {
+                    var val = ((Token<Symbols>)token).Value;
+                    if (val == Symbols.Semicolon)
+                    {
+                        tokens.Read();
+                        break;
+                    }
+                    if (val == Symbols.CurlyClose)
+                        break;
+                }
+
+                tokens.Read();
+            }
         }
         return ret;
     }
@@ -819,7 +838,10 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         else if (token.Type == TokenType.Symbol)
         {
             var symbolToken = (Token<Symbols>)token;
-            if (symbolToken.Value == Symbols.CircleOpen)
+            if (symbolToken.Value == Symbols.Semicolon
+                && endSymbols.Contains(Symbols.Semicolon))
+                return new Nop(symbolToken.Location);
+            else if (symbolToken.Value == Symbols.CircleOpen)
             {
                 if (!tokens.Peek(out t))
                 {
@@ -1133,14 +1155,36 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             return null;
         }
         var nameToken = (Token<string>)token;
-        var member = lhs.ReturnType.GetStructMember(nameToken.Value);
-        if (member == null)
+        StructDefinition retType;
+        if (lhs is Identifyer ident 
+            && ident.Definition is NamespaceDefinition nmsp)
         {
-            errorer.Append($"Member with name {nameToken.Value} doesnt exist in type {lhs.ReturnType}", nameToken.Location);
-            return null;
+            if (!nmsp.TryGetName(nameToken.Value, out Definition? def))
+            {
+                errorer.Append($"Namespace `{nmsp.FullName}` does not contain definition for `{nameToken.Value}`", nameToken.Location);
+                return null;
+            }
+            retType = def switch
+            {
+                VariableDefinition varDef => varDef.ValueType,
+                FunctionDefinition fnDef => new FunctionPointer(fnDef),
+                StructDefinition typeDef => typeDef,
+                NamespaceDefinition => DefaultType.Void,
+                _ => throw new Exception($"Unsupported definition {def.GetType().Name}"),
+            };
+        }
+        else 
+        {
+            var member = lhs.ReturnType.GetStructMember(nameToken.Value);
+            if (member == null)
+            {
+                errorer.Append($"Member with name {nameToken.Value} doesnt exist in type {lhs.ReturnType}", nameToken.Location);
+                return null;
+            }
+            retType = member.Type;
         }
 
-        return new GetMember(lhs, nameToken, member.Type, new Location(lhs.Location, nameToken.Location));
+        return new GetMember(lhs, nameToken, retType, new Location(lhs.Location, nameToken.Location));
     }
 
     private Executable? parseFuncCall(Executable lhs, EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef)
@@ -1198,14 +1242,6 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
     private bool tryGetImmidiateValue(Token token, EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef, IEnumerable<Symbols> endSymbols, out Executable? executable)
     {
         executable = null;
-        if (endSymbols.Contains(Symbols.Semicolon)
-            && token.Type == TokenType.Symbol
-            && ((Token<Symbols>)token).Value == Symbols.Semicolon
-            )
-        {
-            executable = new Nop(token.Location);
-            return true;
-        }
         if (token.Type == TokenType.Literal)
         {
             executable = getLiteralExecutable(token);
@@ -1247,6 +1283,8 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             retType = new FunctionPointer(functionDef);
         else if (def is VariableDefinition varDef)
             retType = varDef.ValueType;
+        else if (def is NamespaceDefinition nmspDef)
+            retType = DefaultType.Void;
         else
             return false;
 

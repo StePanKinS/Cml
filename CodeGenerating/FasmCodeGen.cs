@@ -143,7 +143,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         if (fn.Modifyers.Contains(Keywords.Export))
         {
             sb.Append($"    ; Exported function {fn.FullName}\n");
-            sb.Append($"public {fn.Name}\n\n");
+            sb.Append($"public {fn.FullName}\n");
         }
         if (fn.Code == null)
             throw new Exception($"Function {fn.FullName} has no code");
@@ -289,10 +289,52 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
     private void generateGetMember(GetMember gm, INameContainer locals, StringBuilder sb)
     {
         sb.Append($"        ; GetMember {gm.Location}\n");
-        generateExecutable(gm.Operand, locals, sb);
-        int offset = gm.Operand.ReturnType.GetMemberOffset(gm.Member.Value);
-        var targetType = gm.Operand.ReturnType.GetStructMember(gm.Member.Value)!.Type;
-        loadValue($"rax + {offset}", targetType, locals, sb);
+        if (gm.Operand.ReturnType == DefaultType.Void)
+        {
+            Definition def = getGMdefinition(gm);
+            if (def is VariableDefinition varDef)
+                loadValue(varDef.FullName, varDef.ValueType, locals, sb);
+            else if (def is FunctionDefinition funcDef)
+            {
+                string name = funcDef.Modifyers.Contains(Keywords.External) ? funcDef.Name : funcDef.FullName;
+                loadValue(name, new FunctionPointer(funcDef), locals, sb);
+            }
+            else
+                throw new Exception($"Unexpected definition {def} in generateGetMember");
+        }
+        else
+        {
+            generateExecutable(gm.Operand, locals, sb);
+            int offset = gm.Operand.ReturnType.GetMemberOffset(gm.Member.Value);
+            var targetType = gm.Operand.ReturnType.GetStructMember(gm.Member.Value)!.Type;
+            loadValue($"rax + {offset}", targetType, locals, sb);
+        }
+    }
+
+    private Definition getGMdefinition(GetMember gm)
+    {
+        NamespaceDefinition inmsp;
+        if (gm.Operand is Identifyer ident)
+        {
+            if (ident.Definition is not NamespaceDefinition nmsp1)
+                throw new Exception($"Unexpected definition {ident.Definition.GetType().Name}, namespace expected");
+
+            inmsp = nmsp1;
+        }
+        else if (gm.Operand is GetMember igm)
+        {
+            var definition = getGMdefinition(igm);
+            if (definition is not NamespaceDefinition nmsp2)
+                throw new Exception($"Unexpected definition {definition.GetType().Name}, namespace expected");
+
+            inmsp = nmsp2;
+        }
+        else
+            throw new Exception("How did i get here. in getGMnmsp");
+
+        if (!inmsp.TryGetName(gm.Member.Value, out var def))
+            throw new Exception($"Member {gm.Member.Value} does not exist in {inmsp}");
+        return def;
     }
 
     private void generateBinaryOp(BinaryOperation bo, INameContainer locals, StringBuilder sb)
@@ -643,7 +685,10 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
             loadValue(source, varDef.ValueType, locals, sb);
         }
         else if (id.Definition is FunctionDefinition fnDef)
-            sb.Append($"    lea rax, [{fnDef.FullName}]\n");
+        {
+            string name = fnDef.Modifyers.Contains(Keywords.External) ? fnDef.Name : fnDef.FullName;
+            sb.Append($"    lea rax, [{name}]\n");
+        }
         else
             throw new Exception("Identifyer is not a variable or function");
     }
