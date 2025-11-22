@@ -1,0 +1,32 @@
+{
+    "name": "cml",
+    "displayName": "Cml",
+    "version": "0.1.0",
+    "publisher": "Who knows LLC",
+    "description": "Cml language support.",
+    "engines": {
+        "vscode": "^1.50.0"
+    },
+    "icon": "icon.png",
+    "contributes": {
+        "languages": [
+            {
+                "id": "cml",
+                "aliases": [
+                    "Cml"
+                ],
+                "extensions": [
+                    ".cml"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "cml",
+                "scopeName": "source.cml",
+                "path": "./syntaxes/cml.tmLanguage.json"
+            }
+        ]
+    }
+}
