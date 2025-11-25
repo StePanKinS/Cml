@@ -512,23 +512,26 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
     private void setStructreferences(StructDefinition structDef)
     {
         var nmsp = (NamespaceDefinition)structDef.Parent;
+        List<StructType.StructMember> members = [];
         foreach (var m in structDef.Members)
         {
-            if (!nmsp.TryGetType(m.TypeName.Value, out StructDefinition? def))
+            if (!nmsp.TryGetType(m.type.Value, out Typ? type))
             {
-                errorer.Append($"Can not resolve type name `{m.TypeName.Value}`", m.TypeName.Location);
+                errorer.Append($"Can not resolve type name `{m.type.Value}`", m.type.Location);
                 continue;
             }
-            m.Type = def;
+            members.Add(new (type, m.type.Value));
         }
+        structDef.Type = new StructType(structDef.Name, [.. members]);
     }
 
     private void setFunctionReferences(FunctionDefinition funcDef)
     {
         NamespaceDefinition nmsp = (NamespaceDefinition)funcDef.Parent;
 
-        if (!nmsp.TryGetType(funcDef.ReturnTypeName.Value, out StructDefinition? type))
-            errorer.Append($"Can not resolve type name `{funcDef.ReturnTypeName.Value}`", funcDef.ReturnTypeName.Location);
+        if (!nmsp.TryGetType(funcDef.ReturnTypeName.Value, out Typ? type))
+            errorer.Append($"Can not resolve type name `{funcDef.ReturnTypeName.Value}`", 
+                funcDef.ReturnTypeName.Location);
         else
             funcDef.ReturnType = type;
 
@@ -540,7 +543,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 continue;
             }
 
-            arg.ValueType = type;
+            arg.Type = type;
         }
     }
 
@@ -570,10 +573,10 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         funcDef.ContainsReturn = returnType != null;
 
         if (funcDef.ReturnType != DefaultType.Void && funcDef.ReturnType != returnType)
-            errorer.Append($"Function return type `{funcDef.ReturnType.FullName}` does not match actual return type `{returnType?.FullName}`", funcDef.Location);
+            errorer.Append($"Function return type `{funcDef.ReturnType.Name}` does not match actual return type `{returnType?.Name}`", funcDef.Location);
     }
 
-    private Executable parseInstruction(EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef, out StructDefinition? returnType)
+    private Executable parseInstruction(EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef, out Typ? returnType)
     {
         returnType = null;
 
@@ -622,7 +625,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
                 if (e.ReturnType != funcDef.ReturnType)
                 {
-                    var promoted =promoteToType(e, funcDef.ReturnType);
+                    var promoted = promoteToType(e, funcDef.ReturnType);
                     if (promoted == null)
                         errorer.Append($"Function return type `{funcDef.ReturnType}` does not match actual return type `{e.ReturnType}`", e.Location);
                     else
@@ -869,7 +872,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 Executable? rhs = parseExpression(tokens, nameCtx, funcDef, PrefixOpBP, endSymbols, false);
                 if (rhs == null)
                     return null;
-                StructDefinition? retType = getPrefixOperationReturnType(value, rhs);
+                Typ? retType = getPrefixOperationReturnType(value, rhs);
                 if (retType == null)
                     return null;
                 lhs = new UnaryOperation(value, rhs, retType, new Location(symbolToken.Location, rhs.Location));
@@ -941,7 +944,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         }
     }
 
-    private StructDefinition? getPrefixOperationReturnType(UnaryOperationTypes op, Executable operand)
+    private Typ? getPrefixOperationReturnType(UnaryOperationTypes op, Executable operand)
     {
         switch (op)
         {
@@ -983,14 +986,14 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
     private Executable? verifyBinaryOperation(Executable left, BinaryOperationTypes op, Executable right)
     {
-        StructDefinition? returnType;
+        Typ? returnType;
         switch (op)
         {
             case BinaryOperationTypes.Assign:
-                StructDefinition targetType;
+                Typ targetType;
                 if (left is Identifyer lhsIdent
                     && lhsIdent.Definition is VariableDefinition varDef)
-                    targetType = varDef.ValueType;
+                    targetType = varDef.Type;
                 else if (left is GetMember gm)
                     targetType = gm.ReturnType;
                 else
@@ -1084,7 +1087,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         return new BinaryOperation(op, left, right, returnType, new Location(left.Location, right.Location));
     }
 
-    private StructDefinition? getLeastCommonType(StructDefinition a, StructDefinition b)
+    private Typ? getLeastCommonType(Typ a, Typ b)
     {
         if (a is DefaultType.Integer inta
             && b is DefaultType.Integer intb)
@@ -1115,7 +1118,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         return null;
     }
 
-    private Executable? promoteToType(Executable e, StructDefinition? targetType)
+    private Executable? promoteToType(Executable e, Typ? targetType)
     {
         if (targetType == null)
             return null;
@@ -1155,7 +1158,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             return null;
         }
         var nameToken = (Token<string>)token;
-        StructDefinition retType;
+        Typ retType;
         if (lhs is Identifyer ident 
             && ident.Definition is NamespaceDefinition nmsp)
         {
@@ -1166,16 +1169,21 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             }
             retType = def switch
             {
-                VariableDefinition varDef => varDef.ValueType,
+                VariableDefinition varDef => varDef.Type,
                 FunctionDefinition fnDef => new FunctionPointer(fnDef),
-                StructDefinition typeDef => typeDef,
+                StructDefinition typeDef => typeDef.Type,
                 NamespaceDefinition => DefaultType.Void,
                 _ => throw new Exception($"Unsupported definition {def.GetType().Name}"),
             };
         }
         else 
         {
-            var member = lhs.ReturnType.GetStructMember(nameToken.Value);
+            if (lhs.ReturnType is not StructType st)
+            {
+                errorer.Append($"Expected composite type, not {lhs.ReturnType}", lhs.Location);
+                return null;
+            }
+            var member = st.GetStructMember(nameToken.Value);
             if (member == null)
             {
                 errorer.Append($"Member with name {nameToken.Value} doesnt exist in type {lhs.ReturnType}", nameToken.Location);
@@ -1195,7 +1203,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             errorer.Append("Can not call non-function value", lhs.Location);
             return null;
         }
-        Location loc = funcPtr.Location;
+        Location loc = lhs.Location;
         List<Executable> args = [];
         while (true)
         {
@@ -1252,11 +1260,12 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
         var ident = (Token<string>)token;
         Definition? def;
-        if (!nameCtx.TryGet(ident.Value, out def))
+        if (!nameCtx.TryGetName(ident.Value, out def))
             return false;
 
-        if (def is StructDefinition type)
+        if (def is StructDefinition structDef)
         {
+            Typ type = structDef.Type;
             Location location = token.Location;
             
             if (!tokens.Read(out token!)
@@ -1274,15 +1283,15 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 return true;
             }
 
-            executable = new Identifyer(varDef, varDef.ValueType, token.Location);
+            executable = new Identifyer(varDef, varDef.Type, token.Location);
             return true;
         }
 
-        StructDefinition? retType;
+        Typ? retType;
         if (def is FunctionDefinition functionDef)
             retType = new FunctionPointer(functionDef);
         else if (def is VariableDefinition varDef)
-            retType = varDef.ValueType;
+            retType = varDef.Type;
         else if (def is NamespaceDefinition nmspDef)
             retType = DefaultType.Void;
         else
@@ -1297,7 +1306,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         INameContainer nameCtx,
         FunctionDefinition funcDef,
         IEnumerable<Symbols> endSymbols,
-        StructDefinition type,
+        Typ type,
         Location startLoc
         )
     {
@@ -1341,7 +1350,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         return new UnaryOperation(UnaryOperationTypes.Cast, e, type, loc);
     }
 
-    private bool checkTypeCast(StructDefinition from, StructDefinition to)
+    private bool checkTypeCast(Typ from, Typ to)
     {
         if (from == to)
             return true;

@@ -5,6 +5,7 @@ global using Cml.NameContexts;
 global using Cml.Parsing;
 global using Cml.Lexing;
 global using Cml.Errors;
+global using Cml.Types;
 using System.Diagnostics;
 
 string path = @"test2.cml";
@@ -19,7 +20,7 @@ Lexer lexer = new(path);
 // }
 
 var glbNmsp = NamespaceDefinition.NewGlobal();
-StructDefinition.AddStandartTypes(glbNmsp);
+Typ.AddStandartTypes(glbNmsp);
 ErrorReporter errorer = new();
 
 Parser parser = new(glbNmsp, errorer);

@@ -2,21 +2,11 @@
 namespace clib
 {
     external int printf(char* fmt, long a);
-    export void f() {}
 }
 
-struct st
-{
-    int l,
-    int h,
-}
 
 export int main()
-{
-    st s;
-    s.l = 0;
-    s.h = 1;
-    clib.printf("%llu\n", *(long*)&s);
-
+{    
+    clib.printf("hi\n", 0);
     return 0;
 } 

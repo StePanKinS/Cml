@@ -3,14 +3,12 @@
 public class FunctionDefinition(
     string name,
     Token<string> retTypeName,
-    // Token[] unparsedCode,
     Definition parent,
     Keywords[] modifyers
-// Location location
 ) : Definition(name, parent, modifyers, Location.Nowhere)
 {
     public Token<string> ReturnTypeName = retTypeName;
-    public StructDefinition ReturnType = null!;
+    public Typ ReturnType = null!;
 
     public FunctionArguments Arguments = null!;
 

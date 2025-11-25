@@ -6,15 +6,15 @@ public class VariableDefinition : Definition
         : base(name, parent, modifyers, location)
     {
         TypeName = typeName;
-        ValueType = null!;
+        Type = null!;
     }
 
-    public VariableDefinition(string name, StructDefinition type, Definition parent, Keywords[] modifyers, Location location)
+    public VariableDefinition(string name, Typ type, Definition parent, Keywords[] modifyers, Location location)
         : base(name, parent, modifyers, location)
     {
-        ValueType = type;
+        Type = type;
     }
 
     public string? TypeName;
-    public StructDefinition ValueType;
+    public Typ Type;
 }

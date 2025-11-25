@@ -51,25 +51,25 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
 
         foreach (var v in Variables)
         {
-            if (v.ValueType is DefaultType.Integer || v.ValueType is Pointer)
+            if (v.Type is DefaultType.Integer || v.Type is Pointer)
             {
                 if (intCnt < 6)
                     intCnt++;
                 else
                 {
                     memCnt++;
-                    if (variable.ValueType is DefaultType.Integer || variable.ValueType is Pointer)
+                    if (variable.Type is DefaultType.Integer || variable.Type is Pointer)
                         inMemory = true;
                 }
             }
-            else if (v.ValueType is DefaultType.FloatingPoint)
+            else if (v.Type is DefaultType.FloatingPoint)
             {
                 if (fltCnt < 8)
                     intCnt++;
                 else
                 {
                     memCnt++;
-                    if (variable.ValueType is DefaultType.FloatingPoint)
+                    if (variable.Type is DefaultType.FloatingPoint)
                         inMemory = true;
                 }
             }
@@ -90,7 +90,7 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
         return 1;
     }
 
-    public bool TryGet(string name, [MaybeNullWhen(false)] out Definition definition)
+    public bool TryGetName(string name, [MaybeNullWhen(false)] out Definition definition)
     {
         var defs = (from def in (IEnumerable<Definition>)Variables
                     where def.Name == name
@@ -104,13 +104,13 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
         if (defs.Length > 1)
             throw new Exception($"Found several `{name}` names");
 
-        return Parent.TryGet(name, out definition);
+        return Parent.TryGetName(name, out definition);
     }
 
     public (int intCount, int floatCount, int stackCount) GetClassCount()
-        => GetClassCount(Variables.Select(i => i.ValueType));
+        => GetClassCount(Variables.Select(i => i.Type));
 
-    public static (int intCount, int floatCount, int stackCount) GetClassCount(IEnumerable<StructDefinition> types)
+    public static (int intCount, int floatCount, int stackCount) GetClassCount(IEnumerable<Typ> types)
     {
         int intCount = 0;
         int floatCount = 0;
@@ -140,6 +140,6 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
         return (intCount, floatCount, stackCount);
     }
 
-    public bool TryGetType(string name, [MaybeNullWhen(false)] out StructDefinition type)
+    public bool TryGetType(string name, [MaybeNullWhen(false)] out Typ type)
         => Parent.TryGetType(name, out type);
 }

@@ -161,7 +161,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
 
         for (int i = 0; ic != intCount || fc != floatCount; i++)
         {
-            StructDefinition itype = fn.Arguments.Variables[i].ValueType;
+            Typ itype = fn.Arguments.Variables[i].Type;
             if ((itype is DefaultType.Integer || itype is Pointer)
                 && ic < intCount)
                 sb.Append($"    push {CallRegisters[ic++]}\n");
@@ -293,7 +293,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         {
             Definition def = getGMdefinition(gm);
             if (def is VariableDefinition varDef)
-                loadValue(varDef.FullName, varDef.ValueType, locals, sb);
+                loadValue(varDef.FullName, varDef.Type, locals, sb);
             else if (def is FunctionDefinition funcDef)
             {
                 string name = funcDef.Modifyers.Contains(Keywords.External) ? funcDef.Name : funcDef.FullName;
@@ -305,8 +305,11 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         else
         {
             generateExecutable(gm.Operand, locals, sb);
-            int offset = gm.Operand.ReturnType.GetMemberOffset(gm.Member.Value);
-            var targetType = gm.Operand.ReturnType.GetStructMember(gm.Member.Value)!.Type;
+            if (gm.Operand.ReturnType is not StructType st)
+                throw new Exception($"Expected composite type, not {gm.Operand.ReturnType}. In genGetMember");
+
+            int offset = st.GetMemberOffset(gm.Member.Value);
+            var targetType = st.GetStructMember(gm.Member.Value)!.Type;
             loadValue($"rax + {offset}", targetType, locals, sb);
         }
     }
@@ -355,7 +358,10 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 {
                     sb.Append($"    push rax\n");
                     generateExecutable(gm.Operand, locals, sb);
-                    int offset = gm.Operand.ReturnType.GetMemberOffset(gm.Member.Value);
+                    if (gm.Operand.ReturnType is not StructType st)
+                        throw new Exception($"Expected composite type, not {gm.Operand.ReturnType}. In genBinary");
+
+                    int offset = st.GetMemberOffset(gm.Member.Value);
                     sb.Append($"    mov rbx, rax\n");
                     sb.Append($"    add rbx, {offset}\n");
                     sb.Append($"    pop rax\n");
@@ -547,7 +553,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         }
     }
     
-    private void generateCsat(Executable operand, StructDefinition target, INameContainer locals, StringBuilder sb)
+    private void generateCsat(Executable operand, Typ target, INameContainer locals, StringBuilder sb)
     {
         generateExecutable(operand, locals, sb);
         if (operand.ReturnType is Pointer || target is Pointer)
@@ -682,7 +688,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
             else
                 source = $"rbp {offset:+ 0;- 0}";
 
-            loadValue(source, varDef.ValueType, locals, sb);
+            loadValue(source, varDef.Type, locals, sb);
         }
         else if (id.Definition is FunctionDefinition fnDef)
         {
@@ -693,7 +699,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
             throw new Exception("Identifyer is not a variable or function");
     }
 
-    private void loadValue(string source, StructDefinition valueType, INameContainer locals, StringBuilder sb)
+    private void loadValue(string source, Typ valueType, INameContainer locals, StringBuilder sb)
     {
         if (valueType is Pointer)
             sb.Append($"    mov rax, [{source}]\n");

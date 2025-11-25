@@ -10,41 +10,42 @@ public class NameContext(NameContext? parent) : IEnumerable<Definition>, INameCo
     public List<StructDefinition> Structs = [];
     public List<FunctionDefinition> Functions = [];
     public List<VariableDefinition> Variables = [];
+    public List<DefaultTypeDefinition> DefaultTypes = [];
 
     
     public bool Append(Definition definition)
     {
-        if ((from def in (IEnumerable<Definition>)[.. Namespaces, .. Structs, .. Functions, .. Variables]
-             where def.Name == definition.Name select def).ToArray().Length > 0)
+        if ((from def in (IEnumerable<Definition>)[.. Namespaces, .. Structs,
+            .. Functions, .. Variables, ..DefaultTypes] where def.Name == definition.Name 
+            select def).ToArray().Length > 0)
             return false;
 
-        if (definition is NamespaceDefinition nmsp)
+        switch (definition)
         {
-            Namespaces.Add(nmsp);
-            return true;
+            case NamespaceDefinition nmsp:
+                Namespaces.Add(nmsp);
+                return true;
+            case StructDefinition struc:
+                Structs.Add(struc);
+                return true;
+            case FunctionDefinition func:
+                Functions.Add(func);
+                return true;
+            case VariableDefinition variable:
+                Variables.Add(variable);
+                return true;
+            case DefaultTypeDefinition deft:
+                DefaultTypes.Add(deft);
+                return true;
+            default:
+                throw new ArgumentException($"Unexpected type {definition.GetType().FullName} in {nameof(definition)}");
         }
-        if (definition is StructDefinition struc)
-        {
-            Structs.Add(struc);
-            return true;
-        }
-        if (definition is FunctionDefinition func)
-        {
-            Functions.Add(func);
-            return true;
-        }
-        if (definition is VariableDefinition variable)
-        {
-            Variables.Add(variable);
-            return true;
-        }
-
-        throw new ArgumentException($"Unexpected type {definition.GetType().FullName} in {nameof(definition)}");
     }
 
-    public bool TryGet(string name, [MaybeNullWhen(false)] out Definition definition)
+    public bool TryGetName(string name, [MaybeNullWhen(false)] out Definition definition)
     {
-        var defs = (from def in (IEnumerable<Definition>)[.. Namespaces, .. Structs, .. Functions, .. Variables]
+        var defs = (from def in (IEnumerable<Definition>)[.. Namespaces, .. Structs, 
+                    .. Functions, .. Variables, .. DefaultTypes]
                     where def.Name == name
                     select def).ToArray();
         if (defs.Length == 1)
@@ -57,13 +58,13 @@ public class NameContext(NameContext? parent) : IEnumerable<Definition>, INameCo
             throw new Exception($"Found several `{name}` names");
 
         if (Parent != null)
-            return Parent.TryGet(name, out definition);
+            return Parent.TryGetName(name, out definition);
 
         definition = null;
         return false;
     }
 
-    public bool TryGetType(string name, [MaybeNullWhen(false)] out StructDefinition definition)
+    public bool TryGetType(string name, [MaybeNullWhen(false)] out Typ definition)
     {
         definition = default;
         int ptrCnt = 0;
@@ -75,7 +76,9 @@ public class NameContext(NameContext? parent) : IEnumerable<Definition>, INameCo
         }
         name = name[..(name.Length - ptrCnt)];
 
-        var defs = Structs.Where((s) => s.Name == name).ToArray();
+        var sdefs = Structs.Where((s) => s.Name == name).Select(s => s.Type);
+        var ddefs = DefaultTypes.Where(s => s.Name == name).Select(s => s.Type);
+        Typ[] defs = [.. sdefs, .. ddefs];
 
         if (defs.Length == 1)
             definition = defs[0];

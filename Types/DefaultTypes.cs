@@ -1,15 +1,13 @@
-namespace Cml;
+namespace Cml.Types;
 
-public class DefaultType : StructDefinition
+public class DefaultType : Typ
 {
     public static DefaultType Void { get; } = new("void", 0);
     public static DefaultType Char { get; } = new("char", 1);
     public static DefaultType Bool { get; } = new("bool", 8);
 
     protected DefaultType(string name, int size)
-        : base(name, size, [], null!, [], Location.Nowhere)
-    {
-    }
+        : base(name, size) { }
 
     public override bool Equals(object? obj)
         => ReferenceEquals(this, obj);
@@ -58,19 +56,19 @@ public class DefaultType : StructDefinition
             };
 
         public override string ToString()
-            => $"{(IsSigned ? "" : "U")}Integer({size})";
+            => $"{(IsSigned ? "" : "U")}Integer({Size})";
     }
 
     public class FloatingPoint : DefaultType
     {
-        public static FloatingPoint Float = new("float", 4);
-        public static FloatingPoint Double = new("double", 8);
-        public static FloatingPoint Lit = new("!UnknownSizeFloat", 0);
+        public static FloatingPoint Float { get; } = new("float", 4);
+        public static FloatingPoint Double { get; } = new("double", 8);
+        public static FloatingPoint Lit { get; } = new("!UnknownSizeFloat", 0);
 
         protected FloatingPoint(string name, int size)
             : base(name, size) { }
 
         public override string ToString()
-            => $"FloatingPoint({size})";
+            => $"FloatingPoint({Size})";
     }
 }

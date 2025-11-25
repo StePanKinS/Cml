@@ -2,7 +2,7 @@ namespace Cml.Parsing.Executables;
 
 public abstract record Executable
 (
-    StructDefinition ReturnType,
+    Typ ReturnType,
     Location Location
 );
 
@@ -10,7 +10,7 @@ public record UnaryOperation
 (
     UnaryOperationTypes OperationType,
     Executable Operand,
-    StructDefinition ReturnType,
+    Typ ReturnType,
     Location Location
 ) : Executable(ReturnType, Location);
 
@@ -19,7 +19,7 @@ public record BinaryOperation
     BinaryOperationTypes OperationType,
     Executable Left,
     Executable Right,
-    StructDefinition ReturnType,
+    Typ ReturnType,
     Location Location
 ) : Executable(ReturnType, Location);
 
@@ -27,7 +27,7 @@ public record FunctionCall
 (
     Executable FunctionPointer,
     Executable[] Args,
-    StructDefinition ReturnType,
+    Typ ReturnType,
     Location Location
 ) : Executable(ReturnType, Location);
 
@@ -42,27 +42,21 @@ public record GetMember
 (
     Executable Operand,
     Token<string> Member,
-    StructDefinition ReturnType,
+    Typ ReturnType,
     Location Location
 ) : Executable(ReturnType, Location);
-
-// public record GetTokenValue
-// (
-//     Token Token,
-//     StructDefinition ReturnType
-// ) : Executable(ReturnType, Token.Location);
 
 public record Identifyer
 (
     Definition Definition,
-    StructDefinition ReturnType,
+    Typ ReturnType,
     Location Location
 ) : Executable(ReturnType, Location);
 
 public record Literal<T>
 (
     T Value,
-    StructDefinition ReturnType,
+    Typ ReturnType,
     Location Location
 ) : Executable(ReturnType, Location);
 

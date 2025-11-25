@@ -13,7 +13,7 @@ public class LocalVariables(INameContainer parent) : INameContainer
         get
         {
             if (size == -1)
-                size = Variables.Sum(v => (v.ValueType.Size + 7) & ~7);
+                size = Variables.Sum(v => (v.Type.Size + 7) & ~7);
             return size + Parent.Size;
         }
     }
@@ -23,7 +23,7 @@ public class LocalVariables(INameContainer parent) : INameContainer
         get
         {
             if (size == -1)
-                size = Variables.Sum(v => (v.ValueType.Size + 7) & ~7);
+                size = Variables.Sum(v => (v.Type.Size + 7) & ~7);
             return size;
         }
     }
@@ -42,7 +42,7 @@ public class LocalVariables(INameContainer parent) : INameContainer
         return true;
     }
 
-    public bool TryGet(string name, [MaybeNullWhen(false)] out Definition definition)
+    public bool TryGetName(string name, [MaybeNullWhen(false)] out Definition definition)
     {
         var defs = (from def in (IEnumerable<Definition>)Variables
                     where def.Name == name
@@ -56,7 +56,7 @@ public class LocalVariables(INameContainer parent) : INameContainer
         if (defs.Length > 1)
             throw new Exception($"Found several `{name}` names");
 
-        return Parent.TryGet(name, out definition);
+        return Parent.TryGetName(name, out definition);
     }
 
     public int GetVariableOffset(VariableDefinition variable)
@@ -67,21 +67,15 @@ public class LocalVariables(INameContainer parent) : INameContainer
         int offset = Parent.Size;
         foreach (var v in Variables)
         {
-            offset += (v.ValueType.Size + 7) & ~7;
+            offset += (v.Type.Size + 7) & ~7;
 
             if (v == variable)
                 return -offset;
         }
 
-        return 1; // should not happen
+        throw new Exception("How did we get here. GetVariableOffset");
     }
 
-    public bool TryGetType(string name, [MaybeNullWhen(false)] out StructDefinition type)
+    public bool TryGetType(string name, [MaybeNullWhen(false)] out Typ type)
         => Parent.TryGetType(name, out type);
-
-    // public IEnumerator<VariableDefinition> GetEnumerator()
-    //     => Variables.GetEnumerator();
-
-    // public IEnumerator IEnumerable.GetEnumerator()
-    //     => GetEnumerator();
 }
