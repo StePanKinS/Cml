@@ -2,12 +2,12 @@
 
 public class FunctionDefinition(
     string name,
-    Token<string> retTypeName,
+    Token[] retTypeName,
     Definition parent,
     Keywords[] modifyers
 ) : Definition(name, parent, modifyers, Location.Nowhere)
 {
-    public Token<string> ReturnTypeName = retTypeName;
+    public Token[] ReturnTypeName = retTypeName;
     public Typ ReturnType = null!;
 
     public FunctionArguments Arguments = null!;

@@ -8,7 +8,8 @@ global using Cml.Errors;
 global using Cml.Types;
 using System.Diagnostics;
 
-string path = @"test2.cml";
+string path = @"test.cml";
+Console.WriteLine(Path.Combine(Directory.GetCurrentDirectory(), path));
 
 string build_folder = args.Length > 0 ? args[0] : "/tmp";
 
@@ -34,7 +35,7 @@ if (errorer.Count != 0)
     {
         Console.WriteLine(e);
     }
-    
+
     return;
 }
 

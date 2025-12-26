@@ -1,12 +1,28 @@
 
 namespace clib
 {
-    external int printf(char* fmt, long a);
+    external int printf(char* fmt, void* ptr);
+    external FILE* fopen(char* path, char* mode);
+
+    struct FILE
+    {
+        byte[216] _,
+    }
 }
 
 
-export int main()
-{    
-    clib.printf("hi\n", 0);
+export int main(int argc, char** argv)
+{
+    clib.printf("%d\n", (void*)(ulong)(long)argc);
+    clib.FILE* file = clib.fopen(*argv, "r");
+    clib.printf("%p\n\n", (void*)file);
+    int i = 0;
+    while (i < 216)
+    {
+        clib.printf("%d: ", (void*)(ulong)i);
+        clib.printf("%p\n", (void*)(ulong)(*file)._[i]);
+        i = i + 1;
+    }
+
     return 0;
-} 
+}

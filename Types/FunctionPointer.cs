@@ -5,7 +5,7 @@ namespace Cml.Types;
 public class FunctionPointer(Typ returnType, Typ[] args) : Typ(getName(returnType, args), 8)
 {
     public FunctionPointer(FunctionDefinition funcDef)
-        : this(funcDef.ReturnType, funcDef.Arguments.Variables.Select(a => a.Type).ToArray())
+        : this(funcDef.ReturnType, funcDef.Arguments.Arguments.Select(a => a.Type).ToArray())
     { }
 
     public Typ ReturnType = returnType;

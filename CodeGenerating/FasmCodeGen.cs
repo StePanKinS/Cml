@@ -79,7 +79,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
 
         return sb.ToString();
     }
-    
+
     private void generateDoubles(StringBuilder sb)
     {
         for (int i = 0; i < doubleLiterals.Count; i++)
@@ -161,7 +161,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
 
         for (int i = 0; ic != intCount || fc != floatCount; i++)
         {
-            Typ itype = fn.Arguments.Variables[i].Type;
+            Typ itype = fn.Arguments.Arguments[i].Type;
             if ((itype is DefaultType.Integer || itype is Pointer)
                 && ic < intCount)
                 sb.Append($"    push {CallRegisters[ic++]}\n");
@@ -269,7 +269,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 sb.Append($"        ; while loop {wl.Location}\n");
                 sb.Append($"while_{whileNum}:\n");
                 generateExecutable(wl.Condition, locals, sb);
-                
+
                 sb.Append($"    test rax, rax\n");
                 sb.Append($"    jz while_end_{whileNum}\n");
                 generateExecutable(wl.Body, locals, sb);
@@ -281,37 +281,51 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 generateGetMember(gm, locals, sb);
                 return;
 
+            case GetElement ge:
+                generateGetElement(ge, locals, sb);
+                return;
+
             default:
                 throw new NotImplementedException($"Code generation for {exe.GetType().Name} not implemented");
         }
     }
 
+    private void generateGetElementAddress(GetElement ge, INameContainer locals, StringBuilder sb)
+    {
+        generateExecutable(ge.Index, locals, sb);
+        sb.AppendLine($"    push rax");
+        generateExecutable(ge.Operand, locals, sb);
+        sb.AppendLine($"    pop rbx");
+        int elsize;
+        if (ge.Operand.ReturnType is SizedArray sa)
+            elsize = sa.ElementType.Size;
+        else if (ge.Operand.ReturnType is Pointer p)
+            elsize = p.PointsTo.Size;
+        else
+            throw new Exception($"wtf did parser put into ge.operand {ge.Operand}. in generateGetElementAddress");
+
+        sb.AppendLine($"    imul rbx, {elsize}");
+        sb.AppendLine($"    add rax, rbx");
+    }
+
+    private void generateGetElement(GetElement ge, INameContainer locals, StringBuilder sb)
+    {
+        sb.AppendLine($"        ; GetElement {ge.Location}");
+        generateGetElementAddress(ge, locals, sb);
+        sb.AppendLine($"    mov rbx, rax");
+        loadValue("rbx", ge.ReturnType, locals, sb);
+    }
+
     private void generateGetMember(GetMember gm, INameContainer locals, StringBuilder sb)
     {
         sb.Append($"        ; GetMember {gm.Location}\n");
-        if (gm.Operand.ReturnType == DefaultType.Void)
-        {
-            Definition def = getGMdefinition(gm);
-            if (def is VariableDefinition varDef)
-                loadValue(varDef.FullName, varDef.Type, locals, sb);
-            else if (def is FunctionDefinition funcDef)
-            {
-                string name = funcDef.Modifyers.Contains(Keywords.External) ? funcDef.Name : funcDef.FullName;
-                loadValue(name, new FunctionPointer(funcDef), locals, sb);
-            }
-            else
-                throw new Exception($"Unexpected definition {def} in generateGetMember");
-        }
-        else
-        {
-            generateExecutable(gm.Operand, locals, sb);
-            if (gm.Operand.ReturnType is not StructType st)
-                throw new Exception($"Expected composite type, not {gm.Operand.ReturnType}. In genGetMember");
+        generateExecutable(gm.Operand, locals, sb);
+        if (gm.Operand.ReturnType is not StructType st)
+            throw new Exception($"Expected composite type, not {gm.Operand.ReturnType}. In genGetMember");
 
-            int offset = st.GetMemberOffset(gm.Member.Value);
-            var targetType = st.GetStructMember(gm.Member.Value)!.Type;
-            loadValue($"rax + {offset}", targetType, locals, sb);
-        }
+        int offset = st.GetMemberOffset(gm.Member.Value);
+        var targetType = st.GetStructMember(gm.Member.Value)!.Type;
+        loadValue($"rax + {offset}", targetType, locals, sb);
     }
 
     private Definition getGMdefinition(GetMember gm)
@@ -348,7 +362,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 sb.Append($"        ; Assign {bo.Location}\n");
                 generateExecutable(bo.Right, locals, sb);
                 string target;
-                
+
                 if (bo.Left is Identifyer id && id.Definition is VariableDefinition variable)
                 {
                     int offset = locals.GetVariableOffset(variable);
@@ -367,9 +381,17 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                     sb.Append($"    pop rax\n");
                     target = "rbx";
                 }
+                else if (bo.Left is GetElement ge)
+                {
+                    sb.AppendLine($"    push rax");
+                    generateGetElementAddress(ge, locals, sb);
+                    sb.AppendLine($"    mov rbx, rax");
+                    sb.AppendLine($"    pop rax");
+                    target = "rbx";
+                }
                 else
                     throw new Exception($"Unsupported lhs {bo.Left} in assign");
-                
+
                 if (bo.Right.ReturnType is DefaultType.Integer
                     || bo.Right.ReturnType is Pointer)
                     sb.Append($"    mov [{target}], {RegisterSizes[bo.Right.ReturnType.Size]}\n");
@@ -457,7 +479,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 }
                 else
                     throw new Exception($"Unsupported type {bo.ReturnType} in genBinary");
-                
+
                 sb.Append($"    xor rax, rax\n");
                 sb.Append($"    mov rdx, 1\n");
                 sb.Append(compareOperation);
@@ -516,16 +538,20 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 return;
 
             case UnaryOperationTypes.GetReference:
-                if (uo.Operand is not Identifyer ident
-                    || ident.Definition is not VariableDefinition variable)
-                    throw new Exception("Expected variable identifier");
-
-                sb.Append($"        ; GetReference {uo.Location}\n");
-                int offset = locals.GetVariableOffset(variable);
-                if (offset == 0)
-                    sb.Append($"    lea rax, [{variable.FullName}]\n");
+                if (uo.Operand is Identifyer ident
+                    && ident.Definition is VariableDefinition variable)
+                {
+                    sb.Append($"        ; GetReference {uo.Location}\n");
+                    int offset = locals.GetVariableOffset(variable);
+                    if (offset == 0)
+                        sb.Append($"    lea rax, [{variable.FullName}]\n");
+                    else
+                        sb.Append($"    lea rax, [rbp {offset:+ 0;- 0}]\n");
+                }
+                else if (uo.Operand is GetElement ge)
+                    generateGetElementAddress(ge, locals, sb);
                 else
-                    sb.Append($"    lea rax, [rbp {offset:+ 0;- 0}]\n");
+                    throw new Exception($"Cant get ref from {uo.Operand}. genUO.GerRef");
 
                 return;
 
@@ -552,7 +578,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 throw new NotImplementedException($"Unary operation {uo.OperationType}");
         }
     }
-    
+
     private void generateCsat(Executable operand, Typ target, INameContainer locals, StringBuilder sb)
     {
         generateExecutable(operand, locals, sb);
@@ -563,12 +589,13 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         {
             if (from.Size >= to.Size || from.Size == 0)
                 return; // No action needed for truncation
-            if (from.IsSigned && to.IsSigned)
-                sb.Append($"    movsx {RegisterSizes[to.Size]}, {RegisterSizes[from.Size]}\n");
-            if (to.Size == 8 && from.Size == 4)
-                sb.Append($"    mov eax, eax"); // movzx r64, r/m32 does not exist
-            else
-                sb.Append($"    movzx {RegisterSizes[to.Size]}, {RegisterSizes[from.Size]}\n");
+            if (from.IsSigned && !to.IsSigned)
+            {
+                if (to.Size == 8 && from.Size == 4)
+                    sb.Append($"    mov eax, eax\n"); // movzx r64, r/m32 does not exist
+                else
+                    sb.Append($"    movzx {RegisterSizes[to.Size]}, {RegisterSizes[from.Size]}\n");
+            }
         }
         else if (operand.ReturnType is DefaultType.FloatingPoint ff
             && target is DefaultType.FloatingPoint ft)
@@ -614,10 +641,10 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         // on stack last argument is on higher memory address
         // stack should be 16-byte alligned, padding is added if needed
         // as it would be the last argument
-        
+
 
         var (intCount, floatCount, stackCount) = FunctionArguments.GetClassCount(fc.Args.Select(i => i.ReturnType));
-        
+
 
         bool pad = stackCount % 2 == 1;
         if (pad)
@@ -699,6 +726,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
             throw new Exception("Identifyer is not a variable or function");
     }
 
+    // do not pass value ptr in rax...
     private void loadValue(string source, Typ valueType, INameContainer locals, StringBuilder sb)
     {
         if (valueType is Pointer)

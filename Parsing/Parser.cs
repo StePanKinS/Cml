@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using System.Text;
+
 
 namespace Cml.Parsing;
 
@@ -143,17 +143,17 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         }
 
         t = token;
-        List<(Token<string> type, Token<string> name)> members = [];
+        List<(Token[] type, Token<string> name)> members = [];
 
         while (true)
         {
-            Token<string>? memType = readTypeName(er);
+            Token[]? memType = readTypeName(er);
             if (memType == null)
                 return;
 
             if (!er.Read(out token))
             {
-                Location loc = new(kwdToken.Location, memType.Location);
+                Location loc = new(kwdToken.Location, memType.TokensLocation());
                 errorer.Append($"Expected member name. Got file end", loc);
                 return;
             }
@@ -248,13 +248,13 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         // TODO: start location is in keywords
         Token? token;
 
-        Token<string>? typeName = readTypeName(er);
+        Token[]? typeName = readTypeName(er);
         if (typeName == null)
             return;
 
         if (!er.Read(out token))
         {
-            errorer.Append("Expected function name. Got file end", typeName.Location);
+            errorer.Append("Expected function name. Got file end", typeName.TokensLocation());
             return;
         }
         if (token.Type != TokenType.Identifier)
@@ -267,7 +267,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
         if (!er.Read(out token))
         {
-            Location loc = new(typeName.Location, funcName.Location);
+            Location loc = new(typeName.TokensLocation(), funcName.Location);
             errorer.Append("Expected `(`. Got file name", loc);
             return;
         }
@@ -292,7 +292,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         {
             if (!er.Peek(out token))
             {
-                Location loc = new(typeName, t);
+                Location loc = new(typeName.TokensLocation(), t.Location);
                 errorer.Append($"Expected argument type or `)`. Got file end", loc);
                 er.Read(out _);
                 return;
@@ -303,13 +303,13 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 break;
             }
 
-            Token<string>? argType = readTypeName(er);
+            Token[]? argType = readTypeName(er);
             if (argType == null)
                 return;
 
             if (!er.Read(out token))
             {
-                Location loc = new(typeName, argType);
+                Location loc = new(typeName.TokensLocation(), argType.TokensLocation());
                 errorer.Append($"Expected argument name. Got file end", loc);
                 return;
             }
@@ -329,7 +329,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
             if (!er.Read(out token))
             {
-                Location loc = new(typeName, argName);
+                Location loc = new(typeName.TokensLocation(), argName.Location);
                 errorer.Append($"Expected `,` or `)`. Got file end`", loc);
                 return;
             }
@@ -346,7 +346,8 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
         if (!er.Peek(out token))
         {
-            errorer.Append("Expected function body. Got file end", new Location(typeName, funcName));
+            errorer.Append("Expected function body. Got file end",
+                new Location(typeName.TokensLocation(), funcName.Location));
             return;
         }
 
@@ -356,7 +357,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         else
             body = readUntilSymbol(er, Symbols.Semicolon, inclusive: true);
 
-        Location location = new(typeName, body[^1]);
+        Location location = new(typeName.TokensLocation(), body[^1].Location);
 
         fd.Arguments = args;
         fd.UnparsedCode = body;
@@ -365,9 +366,11 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         nmsp.Append(fd);
     }
 
-    private Token<string>? readTypeName(EnumerableReader<Token> er)
+    private Token[]? readTypeName(EnumerableReader<Token> er)
     {
+        List<Token> tokens = [];
         Token? token;
+
         if (!er.Read(out token))
         {
             errorer.Append("Expected type name. Got file end", token!.Location);
@@ -378,22 +381,89 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             errorer.Append($"Expected type name. Got {token}", token.Location);
             return null;
         }
-        StringBuilder sb = new();
-        Location loc = token.Location;
-        sb.Append(((Token<string>)token).Value);
+        tokens.Add(token);
+
         while (true)
         {
-            if (!er.Peek(out token) || token.Type != TokenType.Symbol)
-                break;
+            if (!er.Peek(out token))
+                return tokens.ToArray();
+
+            if (token.Type != TokenType.Symbol)
+                return tokens.ToArray();
 
             var symbolToken = (Token<Symbols>)token;
-            if (symbolToken.Value != Symbols.Star)
+
+            if (symbolToken.Value == Symbols.Dot)
+            {
+                tokens.Add(token);
+                er.Read();
+                if (!er.Read(out token))
+                {
+                    errorer.Append("Expected type name. Got file end", token!.Location);
+                    return null;
+                }
+                if (token.Type != TokenType.Identifier)
+                {
+                    errorer.Append($"Expected type name. Got {token}", token.Location);
+                    return null;
+                }
+                tokens.Add(token);
+                continue;
+            }
+            else if (symbolToken.Value == Symbols.Star
+                || symbolToken.Value == Symbols.SquareOpen)
                 break;
-            sb.Append('*');
-            loc = new(loc, symbolToken.Location);
-            er.Read(out token);
+            else
+                return tokens.ToArray();
         }
-        return new Token<string>(sb.ToString(), TokenType.Identifier, loc);
+        while (true)
+        {
+            if (!er.Peek(out token)
+                || token.Type != TokenType.Symbol)
+                return tokens.ToArray();
+
+            var symbolToken = (Token<Symbols>)token;
+            if (symbolToken.Value == Symbols.Star)
+            {
+                tokens.Add(token);
+                er.Read();
+                continue;
+            }
+            else if (symbolToken.Value == Symbols.SquareOpen)
+            {
+                tokens.Add(token);
+                er.Read();
+                if (!er.Read(out token))
+                {
+                    errorer.Append("Unexpected end of file", tokens[^1].Location);
+                    return null;
+                }
+                if (token.Type == TokenType.Symbol
+                    && ((Token<Symbols>)token).Value == Symbols.SquareClose)
+                {
+                    tokens.Add(token);
+                    continue;
+                }
+                else if (token.Type == TokenType.Literal
+                    && token is Token<ulong> intlit)
+                {
+                    tokens.Add(token);
+                    if (!er.Read(out token)
+                        || token.Type != TokenType.Symbol
+                        || ((Token<Symbols>)token).Value != Symbols.SquareClose)
+                    {
+                        errorer.Append("Expected `]`", tokens[^1].Location);
+                        return null;
+                    }
+                    tokens.Add(token);
+                    continue;
+                }
+                else
+                    break;
+            }
+        }
+
+        return tokens.ToArray();
     }
 
     private Token[] readUntilSymbol(
@@ -494,56 +564,133 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 setReferences(nmspDef);
                 continue;
             }
-            if (d is StructDefinition structDef)
+            else if (d is StructDefinition structDef)
             {
-                setStructreferences(structDef);
+                setStructreferences(nmsp.NameContext, structDef);
                 continue;
             }
-            if (d is FunctionDefinition funcDef)
+            else if (d is FunctionDefinition funcDef)
             {
                 setFunctionReferences(funcDef);
                 continue;
             }
-            // TODO: variable definitions
-            throw new Exception($"Unknown definition {d} in setReferences");
+            else if (d is VariableDefinition varDef)
+                throw new NotImplementedException("Variable definition");
+            else
+                throw new Exception($"Unknown definition {d} in setReferences");
         }
     }
 
-    private void setStructreferences(StructDefinition structDef)
+    private void setStructreferences(INameContainer nmsp, StructDefinition structDef)
     {
-        var nmsp = (NamespaceDefinition)structDef.Parent;
         List<StructType.StructMember> members = [];
         foreach (var m in structDef.Members)
         {
-            if (!nmsp.TryGetType(m.type.Value, out Typ? type))
-            {
-                errorer.Append($"Can not resolve type name `{m.type.Value}`", m.type.Location);
+            Typ? type = resolveType(nmsp, m.type);
+            if (type == null)
                 continue;
-            }
-            members.Add(new (type, m.type.Value));
+            members.Add(new(type, m.name.Value));
         }
         structDef.Type = new StructType(structDef.Name, [.. members]);
     }
 
     private void setFunctionReferences(FunctionDefinition funcDef)
     {
-        NamespaceDefinition nmsp = (NamespaceDefinition)funcDef.Parent;
-
-        if (!nmsp.TryGetType(funcDef.ReturnTypeName.Value, out Typ? type))
-            errorer.Append($"Can not resolve type name `{funcDef.ReturnTypeName.Value}`", 
-                funcDef.ReturnTypeName.Location);
-        else
+        Typ? type = resolveType(funcDef.Arguments, funcDef.ReturnTypeName);
+        if (type != null)
             funcDef.ReturnType = type;
 
-        foreach (var arg in funcDef.Arguments.Variables)
+        foreach (var arg in funcDef.Arguments.Arguments)
         {
-            if (!nmsp.TryGetType(arg.TypeName!, out type))
+            type = resolveType(funcDef.Arguments, arg.TypeName!);
+            if (type == null)
+                continue;
+
+            arg.Type = type;
+        }
+    }
+
+    private Typ? resolveType(INameContainer nmsp, Token[] name)
+    {
+        var tokenIdent = (Token<string>)name[0];
+        Definition? def = null;
+        Typ? type = null;
+
+        if (!nmsp.TryGetName(tokenIdent.Value, out def))
+        {
+            errorer.Append($"Unresolvable name {tokenIdent.Value}", tokenIdent.Location);
+            return null;
+        }
+        int i = 1;
+        while (i != name.Length)
+        {
+            var symbolToken = (Token<Symbols>)name[i++];
+            if (symbolToken.Value == Symbols.Dot)
             {
-                errorer.Append($"Can not resolve type name `{arg.TypeName}`", arg.Location);
+                if (def == null)
+                {
+                    if (type == null)
+                        throw new Exception("null+null :(");
+                    errorer.Append($"Type `{type.Name}` doesnt have members", symbolToken.Location);
+                    return null;
+                }
+                if (def is not NamespaceDefinition nmspDef)
+                {
+                    errorer.Append($"{def} can not contain mambers that declare type", tokenIdent.Location);
+                    return null;
+                }
+                tokenIdent = (Token<string>)name[i++];
+                if (!nmsp.TryGetName(tokenIdent.Value, out def))
+                {
+                    errorer.Append($"{nmspDef} does not contain {tokenIdent.Value} member", tokenIdent.Location);
+                    return null;
+                }
                 continue;
             }
 
-            arg.Type = type;
+            if (type == null)
+            {
+                if (def == null)
+                    throw new Exception("nullref wtf");
+                type = typeFromDefinition(def, name.TokensLocation());
+                if (type == null)
+                    return null;
+                def = null;
+            }
+
+            if (symbolToken.Value == Symbols.Star)
+            {
+                type = new Pointer(type);
+            }
+            else if (symbolToken.Value == Symbols.SquareOpen)
+            {
+                var intToken = (Token<ulong>)name[i++];
+                int size = (int)intToken.Value;
+                type = new SizedArray(type, size);
+                i++; // ]
+            }
+            else
+                throw new Exception("Idk what happened in resolveType");
+        }
+        if (type == null)
+        {
+            if (def == null)
+                throw new Exception("Idk what happened in resolveType2");
+            type = typeFromDefinition(def, name.TokensLocation());
+        }
+        return type;
+    }
+
+    private Typ? typeFromDefinition(Definition def, Location loc)
+    {
+        if (def is StructDefinition sdef)
+            return sdef.Type;
+        else if (def is DefaultTypeDefinition dtdef)
+            return dtdef.Type;
+        else
+        {
+            errorer.Append($"{def} doesnt represent type", loc);
+            return null;
         }
     }
 
@@ -653,7 +800,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 }
                 else if (cond.ReturnType != DefaultType.Bool)
                     errorer.Append($"Expected bool type, not {cond.ReturnType}", cond.Location);
-                    
+
                 tokens.Read();
 
                 Executable body = parseInstruction(tokens, nameCtx, funcDef, out var _);
@@ -754,17 +901,17 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
     private static readonly Dictionary<Symbols, BinaryOperationTypes> BinaryOperations = new()
     {
         { Symbols.Equals,                 BinaryOperationTypes.Assign        },
-   
+
         { Symbols.VerticalbarVerticalbar, BinaryOperationTypes.LogicalOr     },
         { Symbols.AmpersandAmpersand,     BinaryOperationTypes.LogicalAnd    },
-   
+
         { Symbols.Verticalbar,            BinaryOperationTypes.BitwiseOr     },
         { Symbols.VerticalArrow,          BinaryOperationTypes.BitwiseXor    },
         { Symbols.Ampersand,              BinaryOperationTypes.BitwiseAnd    },
 
         { Symbols.IsEquals,               BinaryOperationTypes.IsEquals      },
         { Symbols.NotEquals,              BinaryOperationTypes.NotEquals     },
-         
+
         { Symbols.Less,                   BinaryOperationTypes.Less          },
         { Symbols.LessEquals,             BinaryOperationTypes.LessEquals    },
         { Symbols.Greater,                BinaryOperationTypes.Greater       },
@@ -772,7 +919,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
         { Symbols.RightShift,             BinaryOperationTypes.RightShift    },
         { Symbols.LeftShift,              BinaryOperationTypes.LeftShift     },
-         
+
         { Symbols.Plus,                   BinaryOperationTypes.Add           },
         { Symbols.Minus,                  BinaryOperationTypes.Subtract      },
 
@@ -784,17 +931,17 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
     private static readonly Dictionary<BinaryOperationTypes, (int left, int right)> BinaryOpBPs = new()
     {
         { BinaryOperationTypes.Assign,        (1,   0) },
-   
+
         { BinaryOperationTypes.LogicalOr,     (2,   3) },
         { BinaryOperationTypes.LogicalAnd,    (4,   5) },
-   
+
         { BinaryOperationTypes.BitwiseOr,     (6,   7) },
         { BinaryOperationTypes.BitwiseXor,    (8,   9) },
         { BinaryOperationTypes.BitwiseAnd,    (10, 11) },
 
         { BinaryOperationTypes.IsEquals,      (12, 13) },
         { BinaryOperationTypes.NotEquals,     (12, 13) },
-         
+
         { BinaryOperationTypes.Less,          (14, 15) },
         { BinaryOperationTypes.LessEquals,    (14, 15) },
         { BinaryOperationTypes.Greater,       (14, 15) },
@@ -896,6 +1043,24 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         {
             if (!tokens.Peek(out token))
                 return lhs;
+            if (token.Type == TokenType.Identifier)
+            {
+                var ident = (Token<string>)token;
+                if (lhs is not TypeValue tv)
+                {
+                    errorer.Append($"Unexpected name token `{ident.Value}`", ident.Location);
+                    return null;
+                }
+                var varialbe = new VariableDefinition(ident.Value, tv.Type, funcDef, [], new Location(lhs.Location, ident.Location));
+                if (!nameCtx.Append(varialbe))
+                {
+                    errorer.Append($"Local variable with name `{ident.Value}` already exists", ident.Location);
+                    return null;
+                }
+                lhs = new Identifyer(varialbe, varialbe.Type, varialbe.Location);
+                tokens.Read();
+                continue;
+            }
             if (token.Type != TokenType.Symbol)
             {
                 errorer.Append($"Expected symbol. `{token}` is found", token.Location);
@@ -914,6 +1079,44 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 lhs = parseDot(lhs, tokens, nameCtx, funcDef);
                 if (lhs == null)
                     return null;
+            }
+            else if (symbolToken.Value == Symbols.SquareOpen)
+            {
+                if (lhs is TypeValue tv)
+                {
+                    tokens.Read();
+                    if (!tokens.Read(out token))
+                    {
+                        errorer.Append($"Expected array size", symbolToken.Location);
+                        return null;
+                    }
+                    if (token.Type != TokenType.Literal || token is not Token<ulong> litToken)
+                    {
+                        errorer.Append($"Expected int literal, not {token}", token.Location);
+                        return null;
+                    }
+                    int size = (int)litToken.Value;
+                    if (!tokens.Read(out token))
+                    {
+                        errorer.Append("Expected `]`", litToken.Location);
+                        return null;
+                    }
+                    if (token is not Token<Symbols> st || st.Value != Symbols.SquareClose)
+                    {
+                        errorer.Append($"Expected `]`, not {token}", token.Location);
+                        return null;
+                    }
+                    lhs = new TypeValue(new SizedArray(tv.Type, size), new Location(lhs.Location, st.Location));
+                    continue;
+                }
+                lhs = parseGetElement(lhs, tokens, nameCtx, funcDef);
+                if (lhs == null)
+                    return null;
+            }
+            else if (symbolToken.Value == Symbols.Star && lhs is TypeValue tv)
+            {
+                lhs = new TypeValue(new Pointer(tv.Type), new Location(lhs.Location, symbolToken.Location));
+                tokens.Read();
             }
             else if (BinaryOperations.TryGetValue(symbolToken.Value, out BinaryOperationTypes op))
             {
@@ -958,12 +1161,19 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 }
                 return ptr.PointsTo;
             case UnaryOperationTypes.GetReference:
-                if (operand is not Identifyer ident)
+                if (operand is Identifyer ident)
+                    return new Pointer(ident.ReturnType);
+                else if (operand is GetElement ge)
                 {
-                    errorer.Append("Can take reference only from identifier", operand.Location);
-                    return null;
+                    if (ge.Operand.ReturnType is SizedArray sa)
+                        return new Pointer(sa.ElementType);
+                    else if (ge.Operand.ReturnType is Pointer p)
+                        return p;
+                    else
+                        throw new Exception($"Unknown ge operand {ge.Operand}");
                 }
-                return new Pointer(ident.ReturnType);
+                errorer.Append("Can take reference only from identifier or array element", operand.Location);
+                return null;
             case UnaryOperationTypes.Inverse:
                 if (operand.ReturnType != DefaultType.Bool)
                 {
@@ -996,12 +1206,21 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     targetType = varDef.Type;
                 else if (left is GetMember gm)
                     targetType = gm.ReturnType;
+                else if (left is GetElement ge)
+                {
+                    if (ge.Operand.ReturnType is SizedArray sa)
+                        targetType = sa.ElementType;
+                    else if (ge.Operand.ReturnType is Pointer p)
+                        targetType = p.PointsTo;
+                    else
+                        throw new Exception($"Indexing {ge.Operand}. In verifyBinaryOperation");
+                }
                 else
                 {
                     errorer.Append($"Unexpected lhs {left}", left.Location);
                     return null;
                 }
-                
+
                 if (targetType != right.ReturnType)
                 {
                     var promoted = promoteToType(right, targetType);
@@ -1015,7 +1234,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
                 returnType = targetType;
                 break;
-                
+
             case BinaryOperationTypes.Add:
             case BinaryOperationTypes.Subtract:
             case BinaryOperationTypes.Multiply:
@@ -1047,7 +1266,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     right = promoteToType(right, DefaultType.Integer.GetObject(size, ri.IsSigned))!;
                 returnType = li;
                 break;
-                
+
             case BinaryOperationTypes.BitwiseAnd:
             case BinaryOperationTypes.BitwiseOr:
             case BinaryOperationTypes.BitwiseXor:
@@ -1058,7 +1277,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     errorer.Append("Bitwise operations can be applyed only to same integer types", new Location(left.Location, right.Location));
                     return null;
                 }
-                
+
                 returnType = lint;
                 break;
 
@@ -1134,19 +1353,55 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 || eint == DefaultType.Integer.Lit))
             allowed = true;
 
-        if (e.ReturnType is DefaultType.Integer
+        else if (e.ReturnType is DefaultType.Integer
             && targetType is DefaultType.FloatingPoint)
             allowed = true;
 
-        if (e.ReturnType is DefaultType.FloatingPoint ef
+        else if (e.ReturnType is DefaultType.FloatingPoint ef
             && targetType is DefaultType.FloatingPoint tf
             && tf.Size >= ef.Size)
             allowed = true;
-        
+
+        else if (e.ReturnType is Pointer rp
+            && targetType is Pointer tp
+            && (rp.PointsTo == DefaultType.Void
+              || tp.PointsTo == DefaultType.Void))
+            allowed = true;
+
         if (allowed)
             return new UnaryOperation(UnaryOperationTypes.Cast, e, targetType, e.Location);
         else
             return null;
+    }
+
+    private Executable? parseGetElement(Executable lhs, EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef)
+    {
+        tokens.Read();
+        Executable? indexExpr = parseExpression(tokens, nameCtx, funcDef, 0, [Symbols.SquareClose], false);
+        if (indexExpr == null || !tokens.Read(out Token? token))
+            return null;
+
+        if (indexExpr.ReturnType is not DefaultType.Integer)
+        {
+            errorer.Append($"Epected integer type for array index, not `{indexExpr.ReturnType.Name}`", indexExpr.Location);
+            return null;
+        }
+        if (lhs.ReturnType is not Pointer
+            && lhs.ReturnType is not SizedArray)
+        {
+            errorer.Append($"`{lhs.ReturnType.Name}` is not indexable", lhs.Location);
+            return null;
+        }
+
+        Typ type;
+        if (lhs.ReturnType is Pointer p)
+            type = p.PointsTo;
+        else if (lhs.ReturnType is SizedArray sa)
+            type = sa.ElementType;
+        else
+            throw new UnreachableException();
+
+        return new GetElement(lhs, indexExpr, type, new Location(lhs.Location, token.Location));
     }
 
     private Executable? parseDot(Executable lhs, EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef)
@@ -1158,25 +1413,34 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             return null;
         }
         var nameToken = (Token<string>)token;
+        var location = new Location(lhs.Location, nameToken.Location);
         Typ retType;
-        if (lhs is Identifyer ident 
-            && ident.Definition is NamespaceDefinition nmsp)
+        if (lhs is NamespaceValue nv)
         {
+            NamespaceDefinition nmsp = nv.Namespace;
             if (!nmsp.TryGetName(nameToken.Value, out Definition? def))
             {
                 errorer.Append($"Namespace `{nmsp.FullName}` does not contain definition for `{nameToken.Value}`", nameToken.Location);
                 return null;
             }
-            retType = def switch
+            switch (def)
             {
-                VariableDefinition varDef => varDef.Type,
-                FunctionDefinition fnDef => new FunctionPointer(fnDef),
-                StructDefinition typeDef => typeDef.Type,
-                NamespaceDefinition => DefaultType.Void,
-                _ => throw new Exception($"Unsupported definition {def.GetType().Name}"),
-            };
+                case NamespaceDefinition nmspDef:
+                    return new NamespaceValue(nmspDef, location);
+                case StructDefinition structDef:
+                    return new TypeValue(structDef.Type, location);
+                case FunctionDefinition fnDef:
+                    retType = new FunctionPointer(fnDef);
+                    break;
+                case VariableDefinition varDef:
+                    retType = varDef.Type;
+                    break;
+                default:
+                    throw new Exception($"Unknown definition {def}. In GetMember");
+            }
+            return new Identifyer(def, retType, location);
         }
-        else 
+        else
         {
             if (lhs.ReturnType is not StructType st)
             {
@@ -1221,7 +1485,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             Executable? e = parseExpression(tokens, nameCtx, funcDef, 0, [Symbols.CircleClose, Symbols.Comma], false);
             if (e == null)
                 return null;
-                
+
             if (args.Count == funcPtr.Args.Length)
             {
                 errorer.Append($"Too many arguments provided. {funcPtr.Args.Length} expected", lhs.Location);
@@ -1247,7 +1511,14 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         return new FunctionCall(lhs, [.. args], funcPtr.ReturnType, loc);
     }
 
-    private bool tryGetImmidiateValue(Token token, EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef, IEnumerable<Symbols> endSymbols, out Executable? executable)
+    private bool tryGetImmidiateValue(
+        Token token,
+        EnumerableReader<Token> tokens,
+        INameContainer nameCtx,
+        FunctionDefinition funcDef,
+        IEnumerable<Symbols> endSymbols,
+        out Executable? executable
+    )
     {
         executable = null;
         if (token.Type == TokenType.Literal)
@@ -1266,24 +1537,17 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         if (def is StructDefinition structDef)
         {
             Typ type = structDef.Type;
-            Location location = token.Location;
-            
-            if (!tokens.Read(out token!)
-                || token.Type != TokenType.Identifier)
-            {
-                errorer.Append($"Expected variable name. {token} is found", token.Location);
-                return true;
-            }
-
-            location = new(location, token.Location);
-            VariableDefinition varDef = new(((Token<string>)token).Value, type, funcDef, [], location);
-            if (!nameCtx.Append(varDef))
-            {
-                errorer.Append($"Variable with name {varDef.Name} already exists", varDef.Location);
-                return true;
-            }
-
-            executable = new Identifyer(varDef, varDef.Type, token.Location);
+            executable = new TypeValue(type, ident.Location);
+            return true;
+        }
+        else if (def is NamespaceDefinition nmspDef)
+        {
+            executable = new NamespaceValue(nmspDef, ident.Location);
+            return true;
+        }
+        else if (def is DefaultTypeDefinition dtd)
+        {
+            executable = new TypeValue(dtd.Type, ident.Location);
             return true;
         }
 
@@ -1292,10 +1556,8 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             retType = new FunctionPointer(functionDef);
         else if (def is VariableDefinition varDef)
             retType = varDef.Type;
-        else if (def is NamespaceDefinition nmspDef)
-            retType = DefaultType.Void;
         else
-            return false;
+            throw new Exception($"Unkknown def type: {def} {def.FullName}. In tryGetImmidiateValue");
 
         executable = new Identifyer(def, retType, token.Location);
         return true;
@@ -1359,8 +1621,8 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         if (from is Pointer && to is Pointer)
             return true;
         if (from is DefaultType.Integer i
-            && i.Size == 8
-            && i.IsSigned == false 
+            && (i.Size == 8 || i.Size == 0)
+            && i.IsSigned == false
             && to is Pointer)
             return true;
         if (from is Pointer

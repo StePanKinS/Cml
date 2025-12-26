@@ -5,7 +5,7 @@ namespace Cml.NameContexts;
 public class FunctionArguments(INameContainer parent, FunctionDefinition func) : INameContainer
 {
     public INameContainer Parent = parent;
-    public List<VariableDefinition> Variables = [];
+    public List<VariableDefinition> Arguments = [];
     public FunctionDefinition ParentFunction = func;
 
     private int size = -1;
@@ -27,21 +27,22 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
         if (definition is not VariableDefinition variable)
             throw new ArgumentException($"Only {nameof(VariableDefinition)} can be added to {nameof(FunctionArguments)}");
 
-        if ((from def in (IEnumerable<Definition>)Variables
+        if ((from def in (IEnumerable<Definition>)Arguments
              where def.Name == definition.Name
              select def).ToArray().Length > 0)
             return false;
 
-        Variables.Add(variable);
+        Arguments.Add(variable);
         return true;
     }
 
-    public bool Append(Token<string> type, Token<string> name)
-        => Append(new VariableDefinition(name.Value, type.Value, ParentFunction, [], new Location(type, name)));
+    public bool Append(Token[] type, Token<string> name)
+        => Append(new VariableDefinition(name.Value, type, 
+            ParentFunction, [], new Location(type.TokensLocation(), name.Location)));
 
     public int GetVariableOffset(VariableDefinition variable)
     {
-        if (!Variables.Contains(variable))
+        if (!Arguments.Contains(variable))
             return Parent.GetVariableOffset(variable);
 
         int intCnt = 0;
@@ -49,7 +50,7 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
         int memCnt = 0;
         bool inMemory = false;
 
-        foreach (var v in Variables)
+        foreach (var v in Arguments)
         {
             if (v.Type is DefaultType.Integer || v.Type is Pointer)
             {
@@ -92,7 +93,7 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
 
     public bool TryGetName(string name, [MaybeNullWhen(false)] out Definition definition)
     {
-        var defs = (from def in (IEnumerable<Definition>)Variables
+        var defs = (from def in (IEnumerable<Definition>)Arguments
                     where def.Name == name
                     select def).ToArray();
         if (defs.Length == 1)
@@ -108,7 +109,7 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
     }
 
     public (int intCount, int floatCount, int stackCount) GetClassCount()
-        => GetClassCount(Variables.Select(i => i.Type));
+        => GetClassCount(Arguments.Select(i => i.Type));
 
     public static (int intCount, int floatCount, int stackCount) GetClassCount(IEnumerable<Typ> types)
     {

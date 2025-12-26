@@ -12,6 +12,9 @@ public static class Util
         }
     }
 
+    public static Location TokensLocation(this Token[] tokens)
+        => new(tokens[0], tokens[^1]);
+
     public static EnumerableReader<T> GetReader<T>(this IEnumerable<T> enumerable)
         => new(enumerable);
 }

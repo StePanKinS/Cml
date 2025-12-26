@@ -2,7 +2,7 @@
 
 public class VariableDefinition : Definition
 {
-    public VariableDefinition(string name, string typeName, Definition parent, Keywords[] modifyers, Location location)
+    public VariableDefinition(string name, Token[] typeName, Definition parent, Keywords[] modifyers, Location location)
         : base(name, parent, modifyers, location)
     {
         TypeName = typeName;
@@ -15,6 +15,6 @@ public class VariableDefinition : Definition
         Type = type;
     }
 
-    public string? TypeName;
+    public Token[]? TypeName;
     public Typ Type;
 }

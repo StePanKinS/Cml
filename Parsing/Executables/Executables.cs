@@ -46,6 +46,14 @@ public record GetMember
     Location Location
 ) : Executable(ReturnType, Location);
 
+public record GetElement
+(
+    Executable Operand,
+    Executable Index,
+    Typ ReturnType,
+    Location Location
+) : Executable(ReturnType, Location);
+
 public record Identifyer
 (
     Definition Definition,
@@ -83,5 +91,17 @@ public record Return
 
 public record Nop
 (
+    Location Location
+) : Executable(DefaultType.Void, Location);
+
+public record NamespaceValue
+(
+    NamespaceDefinition Namespace,
+    Location Location
+) : Executable(DefaultType.Void, Location);
+
+public record TypeValue
+(
+    Typ Type,
     Location Location
 ) : Executable(DefaultType.Void, Location);
