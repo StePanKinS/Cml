@@ -7,4 +7,6 @@ public enum UnaryOperationTypes
     GetReference,
     Inverse,
     Minus,
+    Increment,
+    Decrement,
 }

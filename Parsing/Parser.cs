@@ -62,7 +62,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     if (kwdToken.Value == Keywords.Struct)
                     {
                         if (modifyers.Count != 0)
-                            errorer.Append("Modifyers are not applicable to structs", new(modifyers[0], modifyers[^1]));
+                            errorer.Append("Modifyers are not applicable to structs", new Location(modifyers[0], modifyers[^1]));
 
                         modifyers.Clear();
                         readStruct(er, nmsp);
@@ -71,7 +71,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     if (kwdToken.Value == Keywords.Namespace)
                     {
                         if (modifyers.Count != 0)
-                            errorer.Append("Modifyers are not applicable to namespaces", new(modifyers[0], modifyers[^1]));
+                            errorer.Append("Modifyers are not applicable to namespaces", new Location(modifyers[0], modifyers[^1]));
 
                         modifyers.Clear();
                         readNamespace(er, nmsp);
@@ -228,12 +228,12 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
         if (!er.Read(out token))
         {
-            errorer.Append("Expected `{`. Got file end", new(kwdToken, nameToken));
+            errorer.Append("Expected `{`. Got file end", new Location(kwdToken, nameToken));
             return;
         }
         if (token.Type != TokenType.Symbol || ((Token<Symbols>)token).Value != Symbols.CurlyOpen)
         {
-            errorer.Append($"Expected `{'{'}`. Got {token}", new(kwdToken, nameToken));
+            errorer.Append($"Expected `{'{'}`. Got {token}", new Location(kwdToken, nameToken));
             return;
         }
 
@@ -896,6 +896,8 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         { Symbols.Star,            UnaryOperationTypes.Dereference  },
         { Symbols.Ampersand,       UnaryOperationTypes.GetReference },
         { Symbols.ExclamationMark, UnaryOperationTypes.Inverse      },
+        { Symbols.Increment,       UnaryOperationTypes.Increment    },
+        { Symbols.Decrement,       UnaryOperationTypes.Decrement    },
     };
 
     private static readonly Dictionary<Symbols, BinaryOperationTypes> BinaryOperations = new()
@@ -1113,6 +1115,17 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 if (lhs == null)
                     return null;
             }
+            else if (symbolToken.Value == Symbols.Increment
+                || symbolToken.Value == Symbols.Decrement)
+            {
+                bool isDec = symbolToken.Value == Symbols.Decrement;
+                Typ? retType = verifyIncrement(lhs, isDec);
+                if (retType == null)
+                    return null;
+                lhs = new PostIncrement(lhs, isDec, retType, new Location(lhs, symbolToken));
+                tokens.Read();
+                continue;
+            }
             else if (symbolToken.Value == Symbols.Star && lhs is TypeValue tv)
             {
                 lhs = new TypeValue(new Pointer(tv.Type), new Location(lhs.Location, symbolToken.Location));
@@ -1145,6 +1158,39 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 return null;
             }
         }
+    }
+
+    private Typ? verifyIncrement(Executable operand, bool isDecrement)
+    {
+        Typ retType;
+        if (operand is Identifyer ident
+            && ident.Definition is VariableDefinition varDef)
+            retType = varDef.Type;
+        else if (operand is GetElement ge)
+        {
+            if (ge.Operand.ReturnType is SizedArray sa)
+                retType = sa.ElementType;
+            else if (ge.Operand.ReturnType is Pointer p)
+                retType = p.PointsTo;
+            else
+                throw new Exception($"Unknown ge.Operand {ge.Operand}. In verifyIncrement");
+        }
+        else
+        {
+            errorer.Append($"Can only {(isDecrement ? "dec" : "inc")}rement " +
+                    "referenceable staff (variables, offsets from known address, ...)", operand);
+            return null;
+        }
+
+        if (retType is not DefaultType.Integer
+            && retType is not Pointer)
+        {
+            errorer.Append($"Can only {(isDecrement ? "dec" : "inc")}rement " +
+                "intergers or pointers", operand);
+            return null;
+        }
+
+        return retType;
     }
 
     private Typ? getPrefixOperationReturnType(UnaryOperationTypes op, Executable operand)
@@ -1189,6 +1235,11 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     return null;
                 }
                 return operand.ReturnType;
+
+            case UnaryOperationTypes.Increment:
+            case UnaryOperationTypes.Decrement:
+                return verifyIncrement(operand, op == UnaryOperationTypes.Decrement);
+
             default:
                 throw new Exception($"Unknown prefix operation {op}");
         }

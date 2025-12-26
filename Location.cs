@@ -1,6 +1,7 @@
 namespace Cml;
 
-public class Location(string file, int sLine, int sCol, int eLine, int eCol) {
+public class Location(string file, int sLine, int sCol, int eLine, int eCol)
+{
     public string File = file;
 
     // Starting from 0
@@ -16,12 +17,19 @@ public class Location(string file, int sLine, int sCol, int eLine, int eCol) {
         start.StartColumn,
         end.EndLine,
         end.EndColumn
-    ) { }
+    )
+    { }
 
-    public Location(Token start, Token end) : this(start.Location, end.Location) { }
+    public Location(Location.ILocatable start, Location.ILocatable end)
+        : this(start.Location, end.Location) { }
 
     public static readonly Location Nowhere = new(null!, -1, -1, -1, -1);
 
     public override string ToString()
         => $"{File}:{StartLine + 1}:{StartColumn + 1} - {EndLine + 1}:{EndColumn + 1}";
+
+    public interface ILocatable
+    {
+        public Location Location { get; }
+    }
 }

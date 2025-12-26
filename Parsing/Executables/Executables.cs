@@ -4,7 +4,7 @@ public abstract record Executable
 (
     Typ ReturnType,
     Location Location
-);
+) : Location.ILocatable;
 
 public record UnaryOperation
 (
@@ -57,6 +57,14 @@ public record GetElement
 public record Identifyer
 (
     Definition Definition,
+    Typ ReturnType,
+    Location Location
+) : Executable(ReturnType, Location);
+
+public record PostIncrement
+(
+    Executable Operand,
+    bool IsDecrement,
     Typ ReturnType,
     Location Location
 ) : Executable(ReturnType, Location);

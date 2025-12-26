@@ -53,6 +53,9 @@ public class Lexer(string fileName)
 
         { ('<', '<'), Symbols.LeftShift              },
         { ('>', '>'), Symbols.RightShift             },
+
+        { ('+', '+'), Symbols.Increment              },
+        { ('-', '-'), Symbols.Decrement              },
     };
 
     private static readonly Dictionary<char, char> stringEscaping = new()

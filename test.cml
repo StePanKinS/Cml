@@ -5,17 +5,15 @@ export int main()
 {
     int[10] arr;
 
-    int i = 0;
-    while (i < 10){
-        arr[i] = 9 - i;
-        i = i + 1;
+    int i = 10;
+    while (i > 0) {
+        arr[9 - i] = --i;
     }
 
 	i = 0;
-	while (i < 10) {
-        printf("%d ", (void*)(ulong)arr[i]);
-        i = i + 1;
-	}
+	while (i < 10)
+        printf("%d ", (void*)(ulong)arr[i++]);
+	
     printf("\n", (void*)0);
     printf("%p; ", &arr);
     printf("%p\n", &arr[5]);

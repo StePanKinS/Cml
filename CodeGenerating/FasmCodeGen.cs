@@ -285,6 +285,10 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 generateGetElement(ge, locals, sb);
                 return;
 
+            case PostIncrement pi:
+                generateIncrement(pi.Operand, pi.IsDecrement, true, locals, sb);
+                return;
+
             default:
                 throw new NotImplementedException($"Code generation for {exe.GetType().Name} not implemented");
         }
@@ -574,9 +578,47 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 loadValue("rax", uo.ReturnType, locals, sb);
                 return;
 
+            case UnaryOperationTypes.Increment:
+            case UnaryOperationTypes.Decrement:
+                generateIncrement(uo.Operand, uo.OperationType == UnaryOperationTypes.Decrement, false, locals, sb);
+                return;
+
             default:
                 throw new NotImplementedException($"Unary operation {uo.OperationType}");
         }
+    }
+
+    private void generateIncrement(Executable operand, bool isDecrement, bool isPostfix, INameContainer locals, StringBuilder sb)
+    {
+        if (operand is Identifyer ident)
+        {
+            var variable = (VariableDefinition)ident.Definition;
+            int offset = locals.GetVariableOffset(variable);
+            string target = offset == 0 ? variable.FullName : $"rbp {offset:+ 0;- 0}";
+            sb.AppendLine($"    lea rax, [{target}]");
+        }
+        else if (operand is GetElement ge)
+            generateGetElementAddress(ge, locals, sb);
+        else if (operand is UnaryOperation uo)
+        {
+            if (uo.OperationType != UnaryOperationTypes.Dereference)
+                throw new Exception($"{UnaryOperationTypes.Dereference} expected, {uo.OperationType} found. In generatePrefixIncrement");
+            generateExecutable(uo.Operand, locals, sb);
+        }
+        else
+            throw new Exception($"Unsupported operand {operand} in prefix increment");
+
+        if (isPostfix)
+            sb.AppendLine($"    mov rbx, [rax]");
+
+        if (operand.ReturnType is DefaultType.Integer itg)
+            sb.AppendLine($"    {(isDecrement ? "dec" : "inc")} {MemorySizeNames[itg.Size]} [rax]");
+        else if (operand.ReturnType is Pointer p)
+            sb.AppendLine($"    {(isDecrement ? "sub" : "add")} qword [rax], {p.PointsTo.Size}");
+        else
+            throw new Exception($"Unexpected type {operand.ReturnType}. In generatePrefixIncrement");
+
+        sb.AppendLine($"    mov rax, {(isPostfix ? "rbx" : "[rax]")}");
     }
 
     private void generateCsat(Executable operand, Typ target, INameContainer locals, StringBuilder sb)

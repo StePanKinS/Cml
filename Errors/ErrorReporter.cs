@@ -12,6 +12,9 @@ public class ErrorReporter : IEnumerable<Error>
     public void Append(string message, Location location, ErrorType level = ErrorType.Error)
         => Errors.Add(new(message, level, location));
 
+    public void Append(string message, Location.ILocatable locatable, ErrorType level = ErrorType.Error)
+        => Errors.Add(new(message, level, locatable.Location));
+
     public int Count { get => Errors.Count; }
 
     public int CountLevel(ErrorType level)
