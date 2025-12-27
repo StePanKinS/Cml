@@ -712,7 +712,8 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             )
             return;
         EnumerableReader<Token> er = funcDef.UnparsedCode.GetReader();
-        funcDef.Code = parseInstruction(er, funcDef.Arguments, funcDef, out var returnType);
+        Context ctx = new(er, funcDef.Arguments, funcDef);
+        funcDef.Code = parseInstruction(ctx, out var returnType);
 
         if (er.Read())
             throw new Exception("Not all code is parsed");
@@ -723,32 +724,32 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             errorer.Append($"Function return type `{funcDef.ReturnType.Name}` does not match actual return type `{returnType?.Name}`", funcDef.Location);
     }
 
-    private Executable parseInstruction(EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef, out Typ? returnType)
+    private Executable parseInstruction(Context ctx, out Typ? returnType)
     {
         returnType = null;
 
         Token? token, t;
-        if (!tokens.Peek(out token))
+        if (!ctx.Tokens.Peek(out token))
             throw new Exception("Empty instruction");
         if (token is Token<Symbols> symbolToken && symbolToken.Value == Symbols.CurlyOpen)
         {
             List<Executable> code = [];
-            LocalVariables locals = new(nameCtx);
+            LocalVariables locals = new(ctx.NameCtx);
 
-            tokens.Read();
+            ctx.Tokens.Read();
             while (true)
             {
-                if (!tokens.Peek(out t))
+                if (!ctx.Tokens.Peek(out t))
                 {
                     errorer.Append("Code block isnt closed", t!.Location);
                     break;
                 }
                 if (t is Token<Symbols> symToken && symToken.Value == Symbols.CurlyClose)
                 {
-                    tokens.Read();
+                    ctx.Tokens.Read();
                     break;
                 }
-                code.Add(parseInstruction(tokens, locals, funcDef, out var innerRT));
+                code.Add(parseInstruction(new(ctx) { NameCtx = locals }, out var innerRT));
 
                 if (innerRT != null && returnType == null)
                     returnType = innerRT;
@@ -758,11 +759,11 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         }
         else if (token is Token<Keywords> kwdToken)
         {
-            tokens.Read();
+            ctx.Tokens.Read();
 
             if (kwdToken.Value == Keywords.Return)
             {
-                Executable? e = parseExpression(tokens, nameCtx, funcDef);
+                Executable? e = parseExpression(ctx, [Symbols.Semicolon], int.MinValue, true);
                 if (e == null)
                 {
                     errorer.Append("Can not parse expression", kwdToken.Location);
@@ -770,11 +771,11 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     return new Return(new Nop(kwdToken.Location), kwdToken.Location);
                 }
 
-                if (e.ReturnType != funcDef.ReturnType)
+                if (e.ReturnType != ctx.FuncDef.ReturnType)
                 {
-                    var promoted = promoteToType(e, funcDef.ReturnType);
+                    var promoted = promoteToType(e, ctx.FuncDef.ReturnType);
                     if (promoted == null)
-                        errorer.Append($"Function return type `{funcDef.ReturnType}` does not match actual return type `{e.ReturnType}`", e.Location);
+                        errorer.Append($"Function return type `{ctx.FuncDef.ReturnType}` does not match actual return type `{e.ReturnType}`", e.Location);
                     else
                         e = promoted;
                 }
@@ -784,7 +785,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             }
             else if (kwdToken.Value == Keywords.While)
             {
-                if (!tokens.Read(out token)
+                if (!ctx.Tokens.Read(out token)
                     || token.Type != TokenType.Symbol
                     || ((Token<Symbols>)token).Value != Symbols.CircleOpen)
                 {
@@ -792,8 +793,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     return new Nop(kwdToken.Location);
                 }
 
-                Context ctx = new(tokens, nameCtx, funcDef, [Symbols.CircleClose]);
-                Executable? cond = parseExpression(ctx, int.MinValue, false);
+                Executable? cond = parseExpression(ctx, [Symbols.CircleClose], int.MinValue, false);
                 if (cond == null)
                 {
                     errorer.Append("Con not parse condition", kwdToken.Location);
@@ -802,17 +802,15 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 else if (cond.ReturnType != DefaultType.Bool)
                     errorer.Append($"Expected bool type, not {cond.ReturnType}", cond.Location);
 
-                tokens.Read();
+                ctx.Tokens.Read();
 
-                Executable body = parseInstruction(tokens, nameCtx, funcDef, out var _);
-                // if (innerRT != null && returnType == null) // body can be not executed
-                //     returnType = innerRT;
+                Executable body = parseInstruction(ctx, out var _);
 
                 return new WhileLoop(cond, body, new Location(kwdToken.Location, body.Location));
             }
             else if (kwdToken.Value == Keywords.If)
             {
-                if (!tokens.Read(out token)
+                if (!ctx.Tokens.Read(out token)
                     || token.Type != TokenType.Symbol
                     || ((Token<Symbols>)token).Value != Symbols.CircleOpen)
                 {
@@ -820,8 +818,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     return new Nop(kwdToken.Location);
                 }
 
-                Context ctx = new(tokens, nameCtx, funcDef, [Symbols.CircleClose]);
-                Executable? cond = parseExpression(new(ctx) { EndSymbols = [Symbols.CircleClose] }, int.MinValue, false);
+                Executable? cond = parseExpression(ctx, [Symbols.CircleClose], int.MinValue, false);
                 if (cond == null)
                 {
                     errorer.Append("Con not parse condition", kwdToken.Location);
@@ -831,18 +828,18 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 {
                     errorer.Append($"Expected bool type, not {cond.ReturnType}", cond.Location);
                 }
-                tokens.Read();
+                ctx.Tokens.Read();
 
-                Executable body = parseInstruction(tokens, nameCtx, funcDef, out var bodyRT);
+                Executable body = parseInstruction(ctx, out var bodyRT);
                 Executable? elseBody = null;
                 Location location = new(kwdToken.Location, body.Location);
 
-                if (tokens.Peek(out token)
+                if (ctx.Tokens.Peek(out token)
                     && token.Type == TokenType.Keyword
                     && ((Token<Keywords>)token).Value == Keywords.Else)
                 {
-                    tokens.Read();
-                    elseBody = parseInstruction(tokens, nameCtx, funcDef, out var elseRT);
+                    ctx.Tokens.Read();
+                    elseBody = parseInstruction(ctx, out var elseRT);
                     location = new Location(location, elseBody.Location);
                     if (bodyRT != null && elseRT != null)
                     {
@@ -859,16 +856,16 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             return new Nop(kwdToken.Location);
         }
 
-        Executable? ret = parseExpression(tokens, nameCtx, funcDef);
+        Executable? ret = parseExpression(ctx, [Symbols.Semicolon], int.MinValue, true);
         if (ret == null)
         {
-            tokens.Peek(out t);
+            ctx.Tokens.Peek(out t);
             Location location = new(token, t!);
             ret = new Nop(location);
             errorer.Append("Can not parse expression", location);
             while (true)
             {
-                if (!tokens.Peek(out token))
+                if (!ctx.Tokens.Peek(out token))
                     break;
 
                 if (token.Type == TokenType.Symbol)
@@ -876,21 +873,18 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     var val = ((Token<Symbols>)token).Value;
                     if (val == Symbols.Semicolon)
                     {
-                        tokens.Read();
+                        ctx.Tokens.Read();
                         break;
                     }
                     if (val == Symbols.CurlyClose)
                         break;
                 }
 
-                tokens.Read();
+                ctx.Tokens.Read();
             }
         }
         return ret;
     }
-
-    private Executable? parseExpression(EnumerableReader<Token> tokens, INameContainer nameCtx, FunctionDefinition funcDef)
-        => parseExpression(new Context(tokens, nameCtx, funcDef, [Symbols.Semicolon]), int.MinValue, true);
 
     private static readonly Dictionary<Symbols, UnaryOperationTypes> PrefixOperations = new()
     {
@@ -966,6 +960,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
     private Executable? parseExpression(
         Context ctx,
+        IEnumerable<Symbols> endSymbols,
         int minBP,
         bool consumeEndSymbol
     )
@@ -981,7 +976,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             errorer.Append(((Token<string>)token).Value, token.Location);
             return null;
         }
-        else if (tryGetImmidiateValue(token, ctx.Tokens, ctx.NameCtx, ctx.FuncDef, ctx.EndSymbols, out lhs))
+        else if (tryGetImmidiateValue(token, ctx, out lhs))
         {
             if (lhs == null)
                 return null;
@@ -990,7 +985,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         {
             var symbolToken = (Token<Symbols>)token;
             if (symbolToken.Value == Symbols.Semicolon
-                && ctx.EndSymbols.Contains(Symbols.Semicolon))
+                && endSymbols.Contains(Symbols.Semicolon))
                 return new Nop(symbolToken.Location);
             else if (symbolToken.Value == Symbols.CircleOpen)
             {
@@ -1003,11 +998,11 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     ctx.NameCtx.TryGetType(((Token<string>)t).Value, out var castType))
                 {
                     ctx.Tokens.Read();
-                    lhs = parseTypeCast(ctx, castType, symbolToken.Location);
+                    lhs = parseTypeCast(ctx, endSymbols, castType, symbolToken.Location);
                 }
                 else
                 {
-                    lhs = parseExpression(new(ctx) { EndSymbols = [Symbols.CircleClose] }, int.MinValue, false);
+                    lhs = parseExpression(ctx, [Symbols.CircleClose], int.MinValue, false);
                     if (!ctx.Tokens.Read(out t) || t.Type != TokenType.Symbol || ((Token<Symbols>)t).Value != Symbols.CircleClose)
                     {
                         errorer.Append("Closing bracket `)` is not found", new Location(symbolToken, t!));
@@ -1017,7 +1012,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             }
             else if (PrefixOperations.TryGetValue(symbolToken.Value, out UnaryOperationTypes value))
             {
-                Executable? rhs = parseExpression(ctx, PrefixOpBP, false);
+                Executable? rhs = parseExpression(ctx, endSymbols, PrefixOpBP, false);
                 if (rhs == null)
                     return null;
                 Typ? retType = getPrefixOperationReturnType(value, rhs);
@@ -1137,7 +1132,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     return lhs;
 
                 ctx.Tokens.Read();
-                Executable? rhs = parseExpression(ctx, rightBP, false);
+                Executable? rhs = parseExpression(ctx, endSymbols, rightBP, false);
                 if (rhs == null)
                     return null;
 
@@ -1145,7 +1140,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 if (lhs == null)
                     return null;
             }
-            else if (ctx.EndSymbols.Contains(symbolToken.Value))
+            else if (endSymbols.Contains(symbolToken.Value))
             {
                 if (consumeEndSymbol)
                     ctx.Tokens.Read();
@@ -1427,7 +1422,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
     private Executable? parseGetElement(Executable lhs, Context ctx)
     {
         ctx.Tokens.Read();
-        Executable? indexExpr = parseExpression(new(ctx) { EndSymbols = [Symbols.SquareClose] }, 0, false);
+        Executable? indexExpr = parseExpression(ctx, [Symbols.SquareClose], 0, false);
         if (indexExpr == null || !ctx.Tokens.Read(out Token? token))
             return null;
 
@@ -1532,7 +1527,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 ctx.Tokens.Read();
                 break;
             }
-            Executable? e = parseExpression(new(ctx) { EndSymbols = [Symbols.CircleClose, Symbols.Comma]}, 0, false);
+            Executable? e = parseExpression(ctx, [Symbols.CircleClose, Symbols.Comma], 0, false);
             if (e == null)
                 return null;
 
@@ -1563,10 +1558,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
     private bool tryGetImmidiateValue(
         Token token,
-        EnumerableReader<Token> tokens,
-        INameContainer nameCtx,
-        FunctionDefinition funcDef,
-        IEnumerable<Symbols> endSymbols,
+        Context ctx,
         out Executable? executable
     )
     {
@@ -1581,7 +1573,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
         var ident = (Token<string>)token;
         Definition? def;
-        if (!nameCtx.TryGetName(ident.Value, out def))
+        if (!ctx.NameCtx.TryGetName(ident.Value, out def))
             return false;
 
         if (def is StructDefinition structDef)
@@ -1615,6 +1607,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
     private Executable? parseTypeCast(
         Context ctx,
+        IEnumerable<Symbols> endSymbols,
         Typ type,
         Location startLoc
         )
@@ -1645,7 +1638,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             type = new Pointer(type);
         }
 
-        Executable? e = parseExpression(ctx, PrefixOpBP, false);
+        Executable? e = parseExpression(ctx, endSymbols, PrefixOpBP, false);
         if (e == null)
             return null;
         if (!checkTypeCast(e.ReturnType, type))
@@ -1711,8 +1704,8 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
     private record Context(
         EnumerableReader<Token> Tokens,
         INameContainer NameCtx,
-        FunctionDefinition FuncDef,
-        IEnumerable<Symbols> EndSymbols
+        FunctionDefinition FuncDef
+        // IEnumerable<Symbols> EndSymbols
     )
     {
         public Context(Context ctx)
@@ -1720,7 +1713,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             Tokens = ctx.Tokens;
             NameCtx = ctx.NameCtx;
             FuncDef = ctx.FuncDef;
-            EndSymbols = ctx.EndSymbols;
+            // EndSymbols = ctx.EndSymbols;
         }
     }
 }
