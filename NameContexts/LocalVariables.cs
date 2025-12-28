@@ -28,6 +28,14 @@ public class LocalVariables(INameContainer parent) : INameContainer
         }
     }
 
+    public int GetLocalsSize()
+    {
+        int s = 0;
+        if (Parent is LocalVariables lv)
+            s = lv.GetLocalsSize();
+        return SelfSize + s;
+    }
+
     public bool Append(Definition definition)
     {
         if (definition is not VariableDefinition variable)

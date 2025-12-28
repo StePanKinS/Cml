@@ -15,5 +15,7 @@ public class FunctionDefinition(
     public Token[] UnparsedCode = null!;
     public Executable? Code = null;
 
+    public int LocalsSize = 0;
+
     public bool ContainsReturn = false;
 }

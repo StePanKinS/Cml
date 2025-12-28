@@ -25,6 +25,15 @@ public class Location(string file, int sLine, int sCol, int eLine, int eCol)
 
     public static readonly Location Nowhere = new(null!, -1, -1, -1, -1);
 
+    public void Set(Location loc)
+    {
+        StartLine = loc.StartLine;
+        EndLine = loc.EndLine;
+        StartColumn = loc.StartColumn;
+        EndColumn = loc.EndColumn;
+        File = loc.File;
+    }
+
     public override string ToString()
         => $"{File}:{StartLine + 1}:{StartColumn + 1} - {EndLine + 1}:{EndColumn + 1}";
 

@@ -10,15 +10,16 @@ namespace clib
     }
 }
 
-
 export int main(int argc, char** argv)
 {
     clib.printf("%d\n", (void*)(ulong)(long)argc);
     clib.FILE* file = clib.fopen(*argv, "r");
     clib.printf("%p\n\n", (void*)file);
-    int i = 0;
+
+    i = 0;
     while (i < 216)
     {
+        int j;
         clib.printf("%d: ", (void*)(ulong)i);
         clib.printf("%p\n", (void*)(ulong)(*file)._[i]);
         i = i + 1;

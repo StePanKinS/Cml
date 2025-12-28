@@ -84,13 +84,6 @@ public record ControlFlow
     Location Location
 ) : Executable(DefaultType.Void, Location);
 
-public record WhileLoop
-(
-    Executable Condition,
-    Executable Body,
-    Location Location
-) : Executable(DefaultType.Void, Location);
-
 public record Return
 (
     Executable Value,
@@ -113,3 +106,30 @@ public record TypeValue
     Typ Type,
     Location Location
 ) : Executable(DefaultType.Void, Location);
+
+public abstract record Loop
+(
+    Location Location
+) : Executable(DefaultType.Void, Location)
+{
+    public Executable Body { get; set; } = null!;
+}
+
+public record WhileLoop
+(
+    Executable Condition,
+    Location Location
+) : Loop(Location);
+
+public record Break
+(
+    Loop TargetLoop,
+    Location Location
+) : Executable(DefaultType.Void, Location);
+
+public record Continue
+(
+    Loop TargetLoop,
+    Location Location
+) : Executable(DefaultType.Void, Location);
+

@@ -707,13 +707,14 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
     private void parseCode(FunctionDefinition funcDef)
     {
-        if (funcDef.Modifyers.Contains(Keywords.External)
-            // || funcDef.Modifyers.Contains(Keywords.Export)
-            )
+        if (funcDef.Modifyers.Contains(Keywords.External))
             return;
+
         EnumerableReader<Token> er = funcDef.UnparsedCode.GetReader();
         Context ctx = new(er, funcDef.Arguments, funcDef);
-        funcDef.Code = parseInstruction(ctx, out var returnType);
+        int localsSize = 0;
+        funcDef.Code = parseInstruction(ctx, [], out var returnType, ref localsSize);
+        funcDef.LocalsSize = localsSize;
 
         if (er.Read())
             throw new Exception("Not all code is parsed");
@@ -724,7 +725,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
             errorer.Append($"Function return type `{funcDef.ReturnType.Name}` does not match actual return type `{returnType?.Name}`", funcDef.Location);
     }
 
-    private Executable parseInstruction(Context ctx, out Typ? returnType)
+    private Executable parseInstruction(Context ctx, Loop[] loops, out Typ? returnType, ref int maxLocalsSize)
     {
         returnType = null;
 
@@ -749,11 +750,15 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     ctx.Tokens.Read();
                     break;
                 }
-                code.Add(parseInstruction(new(ctx) { NameCtx = locals }, out var innerRT));
+                code.Add(parseInstruction(new(ctx) { NameCtx = locals }, loops, out var innerRT, ref maxLocalsSize));
 
                 if (innerRT != null && returnType == null)
                     returnType = innerRT;
             }
+
+            int s = locals.GetLocalsSize();
+            if (s > maxLocalsSize)
+                maxLocalsSize = s;
 
             return new CodeBlock([.. code], locals, new(token!, t!));
         }
@@ -804,9 +809,14 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
                 ctx.Tokens.Read();
 
-                Executable body = parseInstruction(ctx, out var _);
+                var wl = new WhileLoop(cond, new Location(kwdToken, kwdToken));
 
-                return new WhileLoop(cond, body, new Location(kwdToken.Location, body.Location));
+                Executable body = parseInstruction(ctx, [.. loops, wl], out var _, ref maxLocalsSize);
+
+                wl.Body = body;
+                wl.Location.Set(new Location(kwdToken, body));
+
+                return wl;
             }
             else if (kwdToken.Value == Keywords.If)
             {
@@ -830,7 +840,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 }
                 ctx.Tokens.Read();
 
-                Executable body = parseInstruction(ctx, out var bodyRT);
+                Executable body = parseInstruction(ctx, loops, out var bodyRT, ref maxLocalsSize);
                 Executable? elseBody = null;
                 Location location = new(kwdToken.Location, body.Location);
 
@@ -839,7 +849,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     && ((Token<Keywords>)token).Value == Keywords.Else)
                 {
                     ctx.Tokens.Read();
-                    elseBody = parseInstruction(ctx, out var elseRT);
+                    elseBody = parseInstruction(ctx, loops, out var elseRT, ref maxLocalsSize);
                     location = new Location(location, elseBody.Location);
                     if (bodyRT != null && elseRT != null)
                     {
@@ -850,6 +860,54 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                 }
 
                 return new ControlFlow(cond, body, elseBody, location);
+            }
+            else if (kwdToken.Value == Keywords.Break
+                || kwdToken.Value == Keywords.Continue)
+            {
+                if (!ctx.Tokens.Read(out token))
+                {
+                    errorer.Append($"Unclosed scope", kwdToken);
+                    return new Nop(kwdToken.Location);
+                }
+
+                int n = 1;
+                Token<ulong>? ult = null;
+                if (token.Type == TokenType.Literal
+                    && token is Token<ulong>)
+                {
+                    ult = (Token<ulong>)token;
+                    n = (int)ult.Value;
+                    if (!ctx.Tokens.Read(out token))
+                    {
+                        errorer.Append($"Unclosed scope", kwdToken);
+                        return new Nop(kwdToken.Location);
+                    }
+                    if (n == 0)
+                    {
+                        errorer.Append($"Number of loops should be greater than 0 ( > 0)", ult);
+                        return new Nop(ult.Location);
+                    }
+                }
+
+                if (token is not Token<Symbols> st
+                    || st.Value != Symbols.Semicolon)
+                {
+                    errorer.Append($"Expected semicolon. {token}", token);
+                    return new Nop(token.Location);
+                }
+
+                if (n > loops.Length)
+                {
+                    errorer.Append($"Not enaugh loops to {(
+                        kwdToken.Value == Keywords.Break ? "break out" : "continue")}", kwdToken);
+                    return new Nop(kwdToken.Location);
+                }
+
+                Loop l = loops[loops.Length - n];
+                if (kwdToken.Value == Keywords.Break)
+                    return new Break(l, new Location(kwdToken, (Token?)ult ?? kwdToken));
+                else
+                    return new Continue(l, new Location(kwdToken, (Token?)ult ?? kwdToken));
             }
 
             errorer.Append($"Unexpected keyword `{kwdToken.Value.ToString().ToLower()}`", kwdToken.Location);
@@ -1705,7 +1763,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         EnumerableReader<Token> Tokens,
         INameContainer NameCtx,
         FunctionDefinition FuncDef
-        // IEnumerable<Symbols> EndSymbols
+    // IEnumerable<Symbols> EndSymbols
     )
     {
         public Context(Context ctx)

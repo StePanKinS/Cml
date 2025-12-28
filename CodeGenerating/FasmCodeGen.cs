@@ -7,8 +7,9 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
     private NamespaceDefinition globalNamespace = globalNamespace;
     private List<string> stringLiterals = [];
     private List<double> doubleLiterals = [];
-    private int if_counter = 0;
-    private int while_counter = 0;
+    private int ifsCounter = 0;
+    private int loopsCounter = 0;
+    private Dictionary<Loop, int> loopNumbers = [];
 
 
     private static readonly string[] CallRegisters = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
@@ -57,6 +58,17 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         { 4, "dword" },
         { 8, "qword" },
     };
+
+    private (string startLabel, string endLabel) getLoopLables(Loop loop)
+    {
+        int num;
+        if (!loopNumbers.TryGetValue(loop, out num))
+        {
+            num = loopsCounter++;
+            loopNumbers[loop] = num;
+        }
+        return ($"loop_start_{num}", $"loop_end_{num}");
+    }
 
 
 
@@ -180,6 +192,9 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 throw new Exception($"Unsupported type {itype} in genFunc");
         }
 
+        if (fn.LocalsSize != 0)
+            sb.AppendLine($"    sub rsp, {fn.LocalsSize}");
+
         generateExecutable(fn.Code, fn.Arguments, sb);
 
         if (!fn.ContainsReturn)
@@ -249,7 +264,7 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 return;
 
             case ControlFlow cf:
-                int ifNum = if_counter++;
+                int ifNum = ifsCounter++;
                 sb.Append($"        ; if {cf.Location}\n");
                 generateExecutable(cf.Condition, locals, sb);
 
@@ -265,17 +280,19 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                 return;
 
             case WhileLoop wl:
-                int whileNum = while_counter++;
-                sb.Append($"        ; while loop {wl.Location}\n");
-                sb.Append($"while_{whileNum}:\n");
-                generateExecutable(wl.Condition, locals, sb);
+                {
+                    var (sl, el) = getLoopLables(wl);
+                    sb.Append($"        ; while loop {wl.Location}\n");
+                    sb.Append($"{sl}:\n");
+                    generateExecutable(wl.Condition, locals, sb);
 
-                sb.Append($"    test rax, rax\n");
-                sb.Append($"    jz while_end_{whileNum}\n");
-                generateExecutable(wl.Body, locals, sb);
-                sb.Append($"    jmp while_{whileNum}\n");
-                sb.Append($"while_end_{whileNum}:\n");
-                return;
+                    sb.Append($"    test rax, rax\n");
+                    sb.Append($"    jz {el}\n");
+                    generateExecutable(wl.Body, locals, sb);
+                    sb.Append($"    jmp {sl}\n");
+                    sb.Append($"{el}:\n");
+                    return;
+                }
 
             case GetMember gm:
                 generateGetMember(gm, locals, sb);
@@ -288,6 +305,20 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
             case PostIncrement pi:
                 generateIncrement(pi.Operand, pi.IsDecrement, true, locals, sb);
                 return;
+
+            case Break bk:
+                {
+                    var (_, el) = getLoopLables(bk.TargetLoop);
+                    sb.Append($"    jmp {el} ; Break {bk.Location}");
+                    break;
+                }
+
+            case Continue ct:
+                {
+                    var (st, _) = getLoopLables(ct.TargetLoop);
+                    sb.Append($"    jmp {st} ; Continue {ct.Location}");
+                    break;
+                }
 
             default:
                 throw new NotImplementedException($"Code generation for {exe.GetType().Name} not implemented");
@@ -658,17 +689,10 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
     {
         sb.Append($"        ; Code block start {cb.Location}\n");
 
-        if (cb.Locals.SelfSize != 0)
-            sb.Append($"    sub rsp, {cb.Locals.SelfSize}\n");
-
         foreach (var c in cb.Code)
             generateExecutable(c, cb.Locals, sb);
 
-        if (cb.Locals.SelfSize != 0)
-        {
-            sb.Append($"        ; Code block end {cb.Location}\n");
-            sb.Append($"    add rsp, {cb.Locals.SelfSize}\n");
-        }
+        sb.Append($"        ; Code block end {cb.Location}\n");
     }
 
     private void generateFunctionCall(FunctionCall fc, INameContainer locals, StringBuilder sb)

@@ -14,4 +14,6 @@ public enum Keywords
     Export,
     True,
     False,
+    Break,
+    Continue,
 }
