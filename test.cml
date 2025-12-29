@@ -1,30 +1,5 @@
 
-external void printf(char* fmt, void* data);
+external void printf(char* fmt);
 
-export int main()
-{
-    int[10] arr;
-
-    int i = 10;
-    while (i > 0) {
-        if (i == 5) {
-            i --;
-            continue;
-        }
-        arr[9 - i] = --i;
-    }
-
-	i = 0;
-	while (i < 10)
-    {
-        printf("%d ", (void*)(ulong)arr[i++]);
-        if (i == 7)
-            break 1;
-    }
-	
-    printf("\n", (void*)0);
-    printf("%p; ", &arr);
-    printf("%p\n", &arr[5]);
-
-	return 228;
-}
+export void main()
+    loop printf("Hi!\n");

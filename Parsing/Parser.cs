@@ -818,6 +818,17 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
                 return wl;
             }
+            else if (kwdToken.Value == Keywords.Loop)
+            {
+                var il = new InifiniteLoop(kwdToken.Location);
+
+                Executable body = parseInstruction(ctx, [.. loops, il], out _, ref maxLocalsSize);
+
+                il.Body = body;
+                il.Location.Set(new(kwdToken, body));
+
+                return il;
+            }
             else if (kwdToken.Value == Keywords.If)
             {
                 if (!ctx.Tokens.Read(out token)

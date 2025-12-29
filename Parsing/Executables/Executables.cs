@@ -121,6 +121,11 @@ public record WhileLoop
     Location Location
 ) : Loop(Location);
 
+public record InifiniteLoop
+(
+    Location Location
+) : Loop(Location);
+
 public record Break
 (
     Loop TargetLoop,

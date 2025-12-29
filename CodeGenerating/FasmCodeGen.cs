@@ -320,6 +320,16 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
                     break;
                 }
 
+            case InifiniteLoop il:
+                {
+                    var (sl, el) = getLoopLables(il);
+                    sb.Append($"{sl}:   ; loop {il.Location}\n");
+                    generateExecutable(il.Body, locals, sb);
+                    sb.Append($"    jmp {sl}\n");
+                    sb.Append($"{el}:\n");
+                    break;
+                }
+
             default:
                 throw new NotImplementedException($"Code generation for {exe.GetType().Name} not implemented");
         }

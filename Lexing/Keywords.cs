@@ -16,4 +16,5 @@ public enum Keywords
     False,
     Break,
     Continue,
+    Loop,
 }
