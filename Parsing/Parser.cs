@@ -716,7 +716,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         funcDef.Code = parseInstruction(ctx, [], out var returnType, ref localsSize);
         funcDef.LocalsSize = localsSize;
 
-        if (er.Read())
+        if (er.Read() && errorer.Count == 0)
             throw new Exception("Not all code is parsed");
 
         funcDef.ContainsReturn = returnType != null;

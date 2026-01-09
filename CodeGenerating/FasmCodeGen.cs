@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace Cml.CodeGenerating;
+namespace Cml.CodeGeneration;
 
 public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter errorer)
 {

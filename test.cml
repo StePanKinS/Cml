@@ -1,5 +1,4 @@
 
-external void printf(char* fmt);
 
-export void main()
-    loop printf("Hi!\n");
+export void main2()
+    clib.printf("Hi!\n", (void*)0);
