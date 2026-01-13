@@ -9,7 +9,7 @@ public abstract class Typ(string name, int size)
     public virtual string Name { get => name; }
     public virtual int Size { get => size; }
 
-    public static void AddStandartTypes(NamespaceDefinition globalNamespace)
+    public static void AddStandartTypes(List<FileDefinition> files)
     {
         var types = (IEnumerable<Typ>)[
             DefaultType.Void,
@@ -27,10 +27,14 @@ public abstract class Typ(string name, int size)
             DefaultType.FloatingPoint.Double,
         ];
 
+        FileDefinition file = new("coreTypes", files, [], Location.Nowhere);
+
         foreach(var i in types)
         {
-            globalNamespace.Append(new DefaultTypeDefinition(i));
+            file.Append(new DefaultTypeDefinition(i));
         }
+
+        files.Add(file);
     }
 
 

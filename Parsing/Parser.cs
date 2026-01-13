@@ -3,29 +3,35 @@ using System.Diagnostics;
 
 namespace Cml.Parsing;
 
-public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
+public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 {
     public const Symbols StructMemberSeparator = Symbols.Comma;
     private static readonly IEnumerable<Keywords> Modifyers = [Keywords.External, Keywords.Export];
     private static readonly Dictionary<Symbols, Symbols> BracketPairs = new()
     {
-        { Symbols.CurlyClose, Symbols.CurlyOpen },
+        { Symbols.CurlyClose , Symbols.CurlyOpen  },
         { Symbols.CircleClose, Symbols.CircleOpen },
         { Symbols.SquareClose, Symbols.SquareOpen }
     };
-    private NamespaceDefinition globalNamespace = globalNamespace;
+    private List<FileDefinition> Files = files;
     private ErrorReporter errorer = errorer;
 
-    public void ParseDefinitions(string fileName)
-        => ParseDefinitions(new Lexer(fileName));
+    public void ParseDefinitions(string path, string fileName)
+        => ParseDefinitions(new Lexer(path, fileName), fileName);
 
-    public void ParseDefinitions(Lexer l)
+    public void ParseDefinitions(Lexer l, string fileName)
     {
-        EnumerableReader<Token> er = l.GetTokens().GetReader();
-        parseDefinitions(er, globalNamespace);
+        Token[] tokens = l.GetTokens();
+        if (tokens.Length == 0)
+            return;
+        EnumerableReader<Token> er = tokens.GetReader();
+        Location loc = new(tokens[0], tokens[^1]);
+        FileDefinition file = new(fileName, Files, [], loc);
+        parseDefinitions(er, file, true);
+        Files.Add(file);
     }
 
-    private Location parseDefinitions(EnumerableReader<Token> er, NamespaceDefinition nmsp)
+    private Location parseDefinitions(EnumerableReader<Token> er, NamespaceDefinition nmsp, bool topLevel)
     {
         // TODO: check for name collisions
         List<Token<Keywords>> modifyers = [];
@@ -90,7 +96,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
                     {
                         er.Read(out _);
 
-                        if (nmsp == globalNamespace)
+                        if (topLevel)
                         {
                             errorer.Append("Unexpected `}`", symbolToken.Location);
                             continue;
@@ -238,7 +244,7 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         }
 
         NamespaceDefinition namespaceDefinition = new(nameToken.Value, nmsp, [], Location.Nowhere);
-        Location loc = parseDefinitions(er, namespaceDefinition);
+        Location loc = parseDefinitions(er, namespaceDefinition, false);
         namespaceDefinition.Location = new(kwdToken.Location, loc);
         nmsp.Append(namespaceDefinition);
     }
@@ -547,12 +553,20 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
 
     public void ParseCode()
     {
-        setReferences(globalNamespace);
+        setReferences(Files);
 
         if (errorer.Count != 0)
             return;
 
-        parseCode(globalNamespace);
+        parseCode(Files);
+    }
+
+    private void setReferences(IEnumerable<FileDefinition> files)
+    {
+        foreach (var file in files)
+        {
+            setReferences(file);
+        }
     }
 
     private void setReferences(NamespaceDefinition nmsp)
@@ -691,6 +705,14 @@ public class Parser(NamespaceDefinition globalNamespace, ErrorReporter errorer)
         {
             errorer.Append($"{def} doesnt represent type", loc);
             return null;
+        }
+    }
+
+    private void parseCode(IEnumerable<FileDefinition> files)
+    {
+        foreach (var file in files)
+        {
+            parseCode(file);
         }
     }
 

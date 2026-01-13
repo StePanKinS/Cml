@@ -2,9 +2,9 @@ using System.Text;
 
 namespace Cml.CodeGeneration;
 
-public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter errorer)
+public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter errorer)
 {
-    private NamespaceDefinition globalNamespace = globalNamespace;
+    private IEnumerable<FileDefinition> Files = files;
     private List<string> stringLiterals = [];
     private List<double> doubleLiterals = [];
     private int ifsCounter = 0;
@@ -81,7 +81,8 @@ public class FasmCodeGen(NamespaceDefinition globalNamespace) //, ErrorReporter 
         sb.Append("format ELF64\n\n");
         sb.Append("section '.text' executable writeable\n");
 
-        generateNamespace(globalNamespace, sb);
+        foreach (var file in Files)
+            generateNamespace(file, sb);
 
         sb.Append("section '.data' writeable\n");
         sb.Append($"bit63 dq 1 shl 63\n");

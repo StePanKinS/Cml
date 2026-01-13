@@ -3,16 +3,15 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Cml.NameContexts;
 
-public class NameContext(NameContext? parent) : IEnumerable<Definition>, INameContainer
+public class NameContext(NameContext parent) : IEnumerable<Definition>, INameContainer
 {
-    public NameContext? Parent = parent;
+    public NameContext Parent = parent;
     public List<NamespaceDefinition> Namespaces = [];
     public List<StructDefinition> Structs = [];
     public List<FunctionDefinition> Functions = [];
     public List<VariableDefinition> Variables = [];
     public List<DefaultTypeDefinition> DefaultTypes = [];
 
-    
     public bool Append(Definition definition)
     {
         if ((from def in (IEnumerable<Definition>)[.. Namespaces, .. Structs,
@@ -42,7 +41,7 @@ public class NameContext(NameContext? parent) : IEnumerable<Definition>, INameCo
         }
     }
 
-    public bool TryGetName(string name, [MaybeNullWhen(false)] out Definition definition)
+    public virtual bool TryGetName(string name, [MaybeNullWhen(false)] out Definition definition)
     {
         var defs = (from def in (IEnumerable<Definition>)[.. Namespaces, .. Structs, 
                     .. Functions, .. Variables, .. DefaultTypes]
@@ -64,7 +63,7 @@ public class NameContext(NameContext? parent) : IEnumerable<Definition>, INameCo
         return false;
     }
 
-    public bool TryGetType(string name, [MaybeNullWhen(false)] out Typ definition)
+    public virtual bool TryGetType(string name, [MaybeNullWhen(false)] out Typ definition)
     {
         definition = default;
         int ptrCnt = 0;

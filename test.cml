@@ -1,4 +1,6 @@
 
-
-export void main2()
-    clib.printf("Hi!\n", (void*)0);
+namespace second
+{
+    export void main2()
+        clib.printf("Hi!\n", (void*)0);
+}

@@ -5,4 +5,5 @@ public class DefaultTypeDefinition(Typ type)
 {
     public Typ Type = type;
     public override string FullName => Name;
+    protected override string ParentConstructName => throw new Exception("im not a parent!");
 }

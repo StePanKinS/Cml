@@ -9,11 +9,11 @@ public abstract class Definition(string name, Definition parent, Keywords[] modi
 
     public virtual string FullName
     {
-        get
-        {
-            if (Parent == null || Parent.Name == "@global")
-                return Name;
-            return Parent.FullName + "." + Name;
-        }
+        get => Parent?.ParentConstructName + Name;
+    }
+
+    protected virtual string ParentConstructName
+    {
+        get => FullName + ".";
     }
 }

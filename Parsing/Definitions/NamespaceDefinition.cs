@@ -6,28 +6,23 @@ namespace Cml.Parsing.Definitions;
 public class NamespaceDefinition : Definition, IEnumerable<Definition>
 {
     public NameContext NameContext;
-    public NamespaceDefinition(string name, Definition? parent, Keywords[] modifyers, Location location)
-        : base(name, parent!, modifyers, location)
+    public NamespaceDefinition(string name, NamespaceDefinition parent, Keywords[] modifyers, Location location)
+        : base(name, parent, modifyers, location)
     {
-        if (parent == null)
-            NameContext = new(null);
-        else if (parent is NamespaceDefinition nmsp)
-            NameContext = new(nmsp.NameContext);
-        else
-            throw new Exception($"Namespace could only be defined in global scope or other namespaces");
+        NameContext = new(parent?.NameContext!);
     }
 
     public bool Append(Definition definition)
         => NameContext.Append(definition);
 
-    public bool TryGetType(string name, [MaybeNullWhen(false)] out Typ definition)
+    public virtual bool TryGetType(string name, [MaybeNullWhen(false)] out Typ definition)
         => NameContext.TryGetType(name, out definition);
 
-    public bool TryGetName(string name, [MaybeNullWhen(false)] out Definition definition)
+    public virtual bool TryGetName(string name, [MaybeNullWhen(false)] out Definition definition)
         => NameContext.TryGetName(name, out definition);
 
-    public static NamespaceDefinition NewGlobal()
-        => new("@global", null, [], Location.Nowhere);
+    // public static NamespaceDefinition NewGlobal()
+    //     => new("@global", null, [], Location.Nowhere);
 
     public IEnumerator<Definition> GetEnumerator()
         => NameContext.GetEnumerator();

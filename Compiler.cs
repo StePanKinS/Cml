@@ -18,27 +18,27 @@ public class Compiler
             if (!Path.IsPathRooted(s))
                 path = Path.Combine(bp, s);
 
-            lexers.Add(path, new Lexer(path));
+            lexers.Add(s, new Lexer(path, s));
         }
 
         if (project.PrintTokens)
             printTokens(lexers);
 
-        var glbNmsp = NamespaceDefinition.NewGlobal();
-        Typ.AddStandartTypes(glbNmsp);
         ErrorReporter errorer = new();
+        List<FileDefinition> files = [];
+        Typ.AddStandartTypes(files);
 
-        Parser parser = new(glbNmsp, errorer);
-        foreach (var lexer in lexers.Values)
+        Parser parser = new(files, errorer);
+        foreach (var (path, lexer) in lexers)
         {
-            parser.ParseDefinitions(lexer);
+            parser.ParseDefinitions(lexer, path);
         }
         parser.ParseCode();
 
         if (errorer.Count != 0)
             return errorer;
 
-        string asm = new FasmCodeGen(glbNmsp).Generate();
+        string asm = new FasmCodeGen(files).Generate();
 
         string asmpath = Path.Combine(project.TmpBuildDir, $"{project.Name}.asm");
         string objpath = Path.ChangeExtension(asmpath, "o");

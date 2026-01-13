@@ -1,8 +1,8 @@
 namespace Cml.Lexing;
 
-public class Lexer(string fileName)
+public class Lexer(string path, string fileName)
 {
-    private readonly EnumerableReader<char> er = new StreamReader(fileName).ReadToEnd().GetReader();
+    private readonly EnumerableReader<char> er = new StreamReader(path).ReadToEnd().GetReader();
     private readonly LocationTracker lt = new(fileName);
     private string acum = "";
     private List<Token> tokens = null!;

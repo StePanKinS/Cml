@@ -25,7 +25,7 @@ export int main(int argc, char** argv)
         i = i + 1;
     }
 
-    main2();
+    second.main2();
 
     return 0;
 }
