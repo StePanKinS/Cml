@@ -8,10 +8,10 @@ public class FileDefinition : NamespaceDefinition
         : base(name, null!, modifyers, location)
     {
         Project = project;
-        NameContext = new FileContext(project);
+        NameContext = new FileContext(project, this);
     }
 
-    protected override string ParentConstructName
+    protected override string parentConstructName
     {
         get => string.Empty;
     }

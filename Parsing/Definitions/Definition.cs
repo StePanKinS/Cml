@@ -9,10 +9,10 @@ public abstract class Definition(string name, Definition parent, Keywords[] modi
 
     public virtual string FullName
     {
-        get => Parent?.ParentConstructName + Name;
+        get => Parent?.parentConstructName + Name;
     }
 
-    protected virtual string ParentConstructName
+    protected virtual string parentConstructName
     {
         get => FullName + ".";
     }

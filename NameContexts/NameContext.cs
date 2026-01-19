@@ -3,20 +3,22 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Cml.NameContexts;
 
-public class NameContext(NameContext parent) : IEnumerable<Definition>, INameContainer
+public class NameContext(NameContext parent, NamespaceDefinition nmspDef) : IEnumerable<Definition>, INameContainer
 {
     public NameContext Parent = parent;
+    public NamespaceDefinition NamespaceDefinition = nmspDef;
     public List<NamespaceDefinition> Namespaces = [];
     public List<StructDefinition> Structs = [];
     public List<FunctionDefinition> Functions = [];
     public List<VariableDefinition> Variables = [];
     public List<DefaultTypeDefinition> DefaultTypes = [];
 
-    public bool Append(Definition definition)
+    public virtual bool Append(Definition definition)
     {
         if ((from def in (IEnumerable<Definition>)[.. Namespaces, .. Structs,
-            .. Functions, .. Variables, ..DefaultTypes] where def.Name == definition.Name 
-            select def).ToArray().Length > 0)
+            .. Functions, .. Variables, ..DefaultTypes]
+             where def.Name == definition.Name
+             select def).ToArray().Length > 0)
             return false;
 
         switch (definition)
@@ -41,12 +43,26 @@ public class NameContext(NameContext parent) : IEnumerable<Definition>, INameCon
         }
     }
 
-    public virtual bool TryGetName(string name, [MaybeNullWhen(false)] out Definition definition)
+    public virtual bool Append(IEnumerable<NameContext> ctxs)
     {
-        var defs = (from def in (IEnumerable<Definition>)[.. Namespaces, .. Structs, 
-                    .. Functions, .. Variables, .. DefaultTypes]
-                    where def.Name == name
-                    select def).ToArray();
+        foreach (var c in ctxs)
+        {
+            foreach (var d in c)
+            {
+                if (!Append(d))
+                    throw new Exception($"Could not append {d} {d.FullName}");
+            }
+        }
+        return true;
+    }
+
+    public bool TryGetName(string name, [MaybeNullWhen(false)] out Definition definition)
+        => tryGetName(name, out definition, true);
+
+    private bool tryGetName(string name, [MaybeNullWhen(false)] out Definition definition, bool goUp)
+    {
+        var defs = getAllWithName(name).ToArray();
+
         if (defs.Length == 1)
         {
             definition = defs[0];
@@ -54,18 +70,53 @@ public class NameContext(NameContext parent) : IEnumerable<Definition>, INameCon
         }
 
         if (defs.Length > 1)
-            throw new Exception($"Found several `{name}` names");
+        {
+            foreach (var d in defs)
+            {
+                if (d is not NamespaceDefinition nmsp)
+                    throw new Exception("Several names that are not namespaces found");
+            }
+            NamespaceDefinition n = new(defs[0].Name, NamespaceDefinition, [], Location.Nowhere);
+            n.Append(defs.Cast<NamespaceDefinition>());
+            definition = n;
+            return true;
+        }
 
         if (Parent != null)
-            return Parent.TryGetName(name, out definition);
+        {
+            if (Parent.TryGetName(name, out definition))
+                return true;
+
+            if (!goUp)
+                return false;
+
+            if (!Parent.TryGetName(NamespaceDefinition.Name, out var bigSelf))
+                throw new Exception("How da hell im not a child of my parent");
+
+            // namespace object can represent not whole namesspace,
+            // this will enshure thar we are searching across whole namespace
+            return ((NamespaceDefinition)bigSelf).NameContext.tryGetName(name, out definition, false);
+        }
 
         definition = null;
         return false;
     }
 
-    public virtual bool TryGetType(string name, [MaybeNullWhen(false)] out Typ definition)
+    protected virtual IEnumerable<Definition> getAllWithName(string name)
     {
-        definition = default;
+        IEnumerable<Definition> all = [
+            .. Namespaces,
+            .. Structs,
+            .. Functions,
+            .. Variables,
+            .. DefaultTypes,
+        ];
+        return all.Where(d => d.Name == name);
+    }
+
+    public bool TryGetType(string name, [MaybeNullWhen(false)] out Typ type)
+    {
+        type = default;
         int ptrCnt = 0;
 
         foreach (char c in name)
@@ -75,24 +126,15 @@ public class NameContext(NameContext parent) : IEnumerable<Definition>, INameCon
         }
         name = name[..(name.Length - ptrCnt)];
 
-        var sdefs = Structs.Where((s) => s.Name == name).Select(s => s.Type);
-        var ddefs = DefaultTypes.Where(s => s.Name == name).Select(s => s.Type);
-        Typ[] defs = [.. sdefs, .. ddefs];
-
-        if (defs.Length == 1)
-            definition = defs[0];
-        else
-        {
-            if (defs.Length > 1)
-                throw new Exception($"Found several `{name}` names");
-
-            if (Parent == null || !Parent.TryGetType(name, out definition))
-                return false;
-        }
+        if (!TryGetName(name, out var def))
+            return false;
+        if (def is not ITypeContainer tc)
+            return false;
+        type = tc.Type;
 
         for (int i = 0; i < ptrCnt; i++)
         {
-            definition = new Pointer(definition);
+            type = new Pointer(type);
         }
         return true;
     }
@@ -103,7 +145,7 @@ public class NameContext(NameContext parent) : IEnumerable<Definition>, INameCon
     public int Size => 0;
 
     public IEnumerator<Definition> GetEnumerator()
-        => ((IEnumerable<Definition>)[.. Namespaces, .. Structs, .. Functions, .. Variables]).GetEnumerator();
+        => ((IEnumerable<Definition>)[.. Namespaces, .. Structs, .. Functions, .. Variables, .. DefaultTypes]).GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator()
         => GetEnumerator();

@@ -1,9 +1,9 @@
 namespace Cml.Parsing.Definitions;
 
 public class DefaultTypeDefinition(Typ type)
-        : Definition(type.Name, null!, [], Location.Nowhere)
+        : Definition(type.Name, null!, [], Location.Nowhere), ITypeContainer
 {
-    public Typ Type = type;
+    public Typ Type { get; set; } = type;
     public override string FullName => Name;
-    protected override string ParentConstructName => throw new Exception("im not a parent!");
+    protected override string parentConstructName => throw new Exception("im not a parent!");
 }

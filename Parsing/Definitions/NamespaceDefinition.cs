@@ -9,11 +9,14 @@ public class NamespaceDefinition : Definition, IEnumerable<Definition>
     public NamespaceDefinition(string name, NamespaceDefinition parent, Keywords[] modifyers, Location location)
         : base(name, parent, modifyers, location)
     {
-        NameContext = new(parent?.NameContext!);
+        NameContext = new(parent?.NameContext!, this);
     }
 
-    public bool Append(Definition definition)
+    public virtual bool Append(Definition definition)
         => NameContext.Append(definition);
+
+    public virtual bool Append(IEnumerable<NamespaceDefinition> nmspDefs)
+        => NameContext.Append(nmspDefs.Select(n => n.NameContext));
 
     public virtual bool TryGetType(string name, [MaybeNullWhen(false)] out Typ definition)
         => NameContext.TryGetType(name, out definition);

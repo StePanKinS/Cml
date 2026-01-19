@@ -1,58 +1,35 @@
-using System.Diagnostics.CodeAnalysis;
-
 namespace Cml.NameContexts;
 
 public class FileContext : NameContext
 {
     public IEnumerable<FileDefinition> Project;
+    public List<ImportDefinition> Imports = [];
 
-    public FileContext(IEnumerable<FileDefinition> project)
-        : base(null!)
+    public FileContext(IEnumerable<FileDefinition> project, FileDefinition fileDef)
+        : base(null!, fileDef)
     {
         Project = project;
     }
 
-    public override bool TryGetType(string name, [MaybeNullWhen(false)] out Typ type)
-        => tryGetType(name, out type, true);
-
-    private bool tryGetType(string name, [MaybeNullWhen(false)] out Typ type, bool search)
+    public override bool Append(Definition definition)
     {
-        if (base.TryGetType(name, out type))
-            return true;
-        if (!search)
-            return false;
-
-        foreach (var f in Project)
+        if (definition is ImportDefinition id)
         {
-            var fc = (FileContext)f.NameContext;
-            if (ReferenceEquals(fc, this))
-                continue;
+            var imports = Imports.Select(i => i.Namespace == id.Namespace).ToArray();
+            if (imports.Length == 1)
+                return false;
+            else if (imports.Length > 1)
+                throw new Exception("multiple identical imports found");
 
-            if (fc.tryGetType(name, out type, false))
-                return true;
+            Imports.Add(id);
+            return true;
         }
-        return false;
+
+        return base.Append(definition);
     }
 
-    public override bool TryGetName(string name, [MaybeNullWhen(false)] out Definition definition)
-        => tryGetName(name, out definition, true);
-
-    private bool tryGetName(string name, [MaybeNullWhen(false)] out Definition definition, bool search)
-    {
-        if (base.TryGetName(name, out definition))
-            return true;
-        if (!search)
-            return false;
-
-        foreach (var f in Project)
-        {
-            var fc = (FileContext)f.NameContext;
-            if (ReferenceEquals(fc, this))
-                continue;
-
-            if (fc.tryGetName(name, out definition, false))
-                return true;
-        }
-        return false;
-    }
+    protected override IEnumerable<Definition> getAllWithName(string name)
+        => Project.SelectMany(file => file)
+            .Concat(Imports.SelectMany(i => i.Namespace ?? (IEnumerable<Definition>)[]))
+            .Where(def => def.Name == name);
 }

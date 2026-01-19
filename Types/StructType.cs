@@ -1,8 +1,16 @@
 namespace Cml.Types;
 
-public class StructType(string name, StructType.StructMember[] members) : Typ(name, calculateSize(members))
+public class StructType(string name, StructType.StructMember[] members) : Typ(name, -1)
 {
     public StructMember[] Members = members;
+
+    public override int Size {
+        get {
+            if (size != -1)
+                return size;
+            return size;
+        }
+    }
 
     public StructMember? GetStructMember(string name)
     {
@@ -13,7 +21,7 @@ public class StructType(string name, StructType.StructMember[] members) : Typ(na
             return mems[0];
         return null;
     }
-    
+
     public int GetMemberOffset(string name)
     {
         int offset = 0;
@@ -21,7 +29,7 @@ public class StructType(string name, StructType.StructMember[] members) : Typ(na
         {
             if (member.Name == name)
                 return offset;
-            
+
             offset += member.Type.Size;
         }
 
@@ -58,9 +66,10 @@ public class StructType(string name, StructType.StructMember[] members) : Typ(na
         return size;
     }
 
-    public class StructMember(Typ type, string name)
+    public class StructMember(string name, Typ? type = null, Token[]? typeName = null)
     {
-        public Typ Type = type;
+        public Typ Type = type!;
+        public Token[] TypeName = typeName!;
         public string Name = name;
 
         public override bool Equals(object? obj)

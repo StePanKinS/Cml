@@ -54,7 +54,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                     var kwdToken = (Token<Keywords>)token;
                     if (Modifyers.Contains(kwdToken.Value))
                     {
-                        if ((from m in modifyers select m.Value).Contains(kwdToken.Value))
+                        if (modifyers.Select(m => m.Value).Contains(kwdToken.Value))
                         {
                             Location loc = new(modifyers.Find((m) => m.Value == kwdToken.Value)!.Location, kwdToken.Location);
                             errorer.Append($"Several {kwdToken.Value.ToString().ToLower()} modifyers found", loc);
@@ -81,6 +81,19 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
                         modifyers.Clear();
                         readNamespace(er, nmsp);
+                        continue;
+                    }
+                    if (kwdToken.Value == Keywords.Import)
+                    {
+                        if (modifyers.Count != 0)
+                            errorer.Append("Modifyers are not applicable to imports", new Location(modifyers[0], modifyers[^1]));
+
+                        if (!topLevel)
+                        {
+                            errorer.Append("Imports are expected only in global scope", kwdToken.Location);
+                            continue;
+                        }
+                        readImport(er, (FileDefinition)nmsp);
                         continue;
                     }
                     errorer.Append($"Unexpected keyword {kwdToken.Value.ToString().ToLower()}", kwdToken.Location);
@@ -112,6 +125,43 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         }
 
         return null!;
+    }
+
+    private void readImport(EnumerableReader<Token> er, FileDefinition nmsp)
+    {
+        List<Token<string>> names = [];
+        er.Read(out var token);
+        Location loc = token!.Location;
+        while (true)
+        {
+            if (!er.Read(out token) || token.Type != TokenType.Identifier)
+            {
+                errorer.Append("Expected namespace name", token!.Location);
+                return;
+            }
+            var nt = (Token<string>)token;
+            names.Add(nt);
+
+            if (!er.Read(out token) || token.Type != TokenType.Symbol)
+            {
+                errorer.Append("Expected `.` or `;`", token!.Location);
+                return;
+            }
+            var st = (Token<Symbols>)token;
+            if (st.Value == Symbols.Semicolon)
+            {
+                loc = new(loc, st.Location);
+                break;
+            }
+            else if (st.Value == Symbols.Dot)
+                continue;
+
+            errorer.Append($"Unexpected symbol `{st.Value}`", st.Location);
+            return;
+        }
+
+        ImportDefinition def = new(names.ToArray(), loc);
+        nmsp.Append(def);
     }
 
     private void readStruct(EnumerableReader<Token> er, NamespaceDefinition nmsp)
@@ -561,10 +611,31 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         parseCode(Files);
     }
 
+
     private void setReferences(IEnumerable<FileDefinition> files)
     {
         foreach (var file in files)
         {
+            var fc = (FileContext)file.NameContext;
+            foreach(var i in fc.Imports)
+            {
+                NamespaceDefinition? nmsp = file;
+                foreach (var name in i.NamespaceName)
+                {
+                    if (!nmsp.TryGetName(name.Value, out var def))
+                    {
+                        errorer.Append($"Can not resolve namespace name in import `{name.Value}`", name.Location);
+                        break;
+                    }
+                    if (def is not NamespaceDefinition nmspDef)
+                    {
+                        errorer.Append($"`{def.FullName}` is not namespace", name.Location);
+                        break;
+                    }
+                    nmsp = nmspDef;
+                }
+                i.Namespace = nmsp;
+            }
             setReferences(file);
         }
     }
@@ -588,6 +659,8 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 setFunctionReferences(funcDef);
                 continue;
             }
+            else if (d is DefaultTypeDefinition)
+                continue;
             else if (d is VariableDefinition varDef)
                 throw new NotImplementedException("Variable definition");
             else
@@ -597,15 +670,17 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
     private void setStructreferences(INameContainer nmsp, StructDefinition structDef)
     {
-        List<StructType.StructMember> members = [];
-        foreach (var m in structDef.Members)
+        foreach (var m in structDef.StructType.Members)
         {
-            Typ? type = resolveType(nmsp, m.type);
+            Typ? type = resolveType(nmsp, m.TypeName);
             if (type == null)
+            {
+                errorer.Append($"Can not resolve type {((Token<string>)m.TypeName[0]).Value}",
+                        m.TypeName.TokensLocation());
                 continue;
-            members.Add(new(type, m.name.Value));
+            }
+            m.Type = type;
         }
-        structDef.Type = new StructType(structDef.Name, [.. members]);
     }
 
     private void setFunctionReferences(FunctionDefinition funcDef)
@@ -654,9 +729,9 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                     return null;
                 }
                 tokenIdent = (Token<string>)name[i++];
-                if (!nmsp.TryGetName(tokenIdent.Value, out def))
+                if (!nmspDef.TryGetName(tokenIdent.Value, out def))
                 {
-                    errorer.Append($"{nmspDef} does not contain {tokenIdent.Value} member", tokenIdent.Location);
+                    errorer.Append($"{nmspDef.FullName} does not contain {tokenIdent.Value} member", tokenIdent.Location);
                     return null;
                 }
                 continue;
@@ -698,7 +773,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
     private Typ? typeFromDefinition(Definition def, Location loc)
     {
         if (def is StructDefinition sdef)
-            return sdef.Type;
+            return sdef.StructType;
         else if (def is DefaultTypeDefinition dtdef)
             return dtdef.Type;
         else
@@ -1564,7 +1639,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 case NamespaceDefinition nmspDef:
                     return new NamespaceValue(nmspDef, location);
                 case StructDefinition structDef:
-                    return new TypeValue(structDef.Type, location);
+                    return new TypeValue(structDef.StructType, location);
                 case FunctionDefinition fnDef:
                     retType = new FunctionPointer(fnDef);
                     break;
@@ -1669,7 +1744,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
         if (def is StructDefinition structDef)
         {
-            Typ type = structDef.Type;
+            Typ type = structDef.StructType;
             executable = new TypeValue(type, ident.Location);
             return true;
         }

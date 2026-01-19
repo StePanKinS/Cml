@@ -2,18 +2,21 @@
 namespace clib
 {
     external int printf(char* fmt, void* ptr);
-    external FILE* fopen(char* path, char* mode);
 
-    struct FILE
+    namespace dummy
     {
-        byte[216] _,
+        struct FILE
+        {
+            byte[216] _,
+        }
     }
 }
+import clib.dummy;
 
 export int main(int argc, char** argv)
 {
     clib.printf("%d\n", (void*)(ulong)(long)argc);
-    clib.FILE* file = clib.fopen(*argv, "r");
+    FILE* file = clib.fopen(*argv, "r");
     clib.printf("%p\n\n", (void*)file);
 
     int i = 0;
