@@ -3,7 +3,7 @@ namespace clib
 {
     external int printf(char* fmt, void* ptr);
 
-    namespace dummy
+    namespace dummy.bro
     {
         struct FILE
         {
@@ -11,7 +11,7 @@ namespace clib
         }
     }
 }
-import clib.dummy;
+import clib.dummy.bro;
 
 export int main(int argc, char** argv)
 {

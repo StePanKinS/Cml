@@ -269,34 +269,49 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         er.Read(out token);
         var kwdToken = (Token<Keywords>)token!;
 
-        if (!er.Read(out token))
+        List<Token<string>> names = [];
+        while (true)
         {
-            errorer.Append("Expected namespace name. Got file end", kwdToken.Location);
-            return;
-        }
-        if (token.Type != TokenType.Identifier)
-        {
-            errorer.Append($"Expected namespace name. Got {token}", kwdToken.Location);
+            if (!er.Read(out token) || token.Type != TokenType.Identifier)
+            {
+                errorer.Append("Expected namespace name", token!.Location);
+                return;
+            }
+            var nt = (Token<string>)token;
+            names.Add(nt);
+
+            if (!er.Read(out token) || token.Type != TokenType.Symbol)
+            {
+                errorer.Append("Expected `.` or `{`", token!.Location);
+                return;
+            }
+            var st = (Token<Symbols>)token;
+            if (st.Value == Symbols.CurlyOpen)
+                break;
+            else if (st.Value == Symbols.Dot)
+                continue;
+
+            errorer.Append($"Unexpected symbol `{st.Value}`", st.Location);
             return;
         }
 
-        var nameToken = (Token<string>)token;
-
-        if (!er.Read(out token))
+        NamespaceDefinition parent = nmsp;
+        var nmsps = new NamespaceDefinition[names.Count];
+        for (int i = 0; i < names.Count; i++)
         {
-            errorer.Append("Expected `{`. Got file end", new Location(kwdToken, nameToken));
-            return;
-        }
-        if (token.Type != TokenType.Symbol || ((Token<Symbols>)token).Value != Symbols.CurlyOpen)
-        {
-            errorer.Append($"Expected `{'{'}`. Got {token}", new Location(kwdToken, nameToken));
-            return;
+            nmsps[i] = new NamespaceDefinition(names[i].Value, parent, [], Location.Nowhere);
+            parent.Append(nmsps[i]);
+            parent = nmsps[i];
         }
 
-        NamespaceDefinition namespaceDefinition = new(nameToken.Value, nmsp, [], Location.Nowhere);
-        Location loc = parseDefinitions(er, namespaceDefinition, false);
-        namespaceDefinition.Location = new(kwdToken.Location, loc);
-        nmsp.Append(namespaceDefinition);
+        nmsp.Append(nmsps[0]);
+        Location loc = parseDefinitions(er, nmsps[^1], false);
+
+        loc = new(kwdToken.Location, loc);
+        foreach (var nmspDef in nmsps)
+        {
+            nmspDef.Location = loc;
+        }
     }
 
     private void readFunction(EnumerableReader<Token> er, NamespaceDefinition nmsp, Keywords[] modifyers)
@@ -617,7 +632,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         foreach (var file in files)
         {
             var fc = (FileContext)file.NameContext;
-            foreach(var i in fc.Imports)
+            foreach (var i in fc.Imports)
             {
                 NamespaceDefinition? nmsp = file;
                 foreach (var name in i.NamespaceName)

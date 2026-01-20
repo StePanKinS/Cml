@@ -1,6 +1,6 @@
 namespace clib
 {
-    external dummy.FILE* fopen(char* path, char* mode);
+    external dummy.bro.FILE* fopen(char* path, char* mode);
 }
 
 import clib;
