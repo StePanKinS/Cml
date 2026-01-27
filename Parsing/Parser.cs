@@ -1560,6 +1560,9 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             && b is DefaultType.FloatingPoint)
             return b;
 
+        if (a == DefaultType.Bool && b == DefaultType.Bool)
+            return DefaultType.Bool;
+
         return null;
     }
 

@@ -15,11 +15,9 @@ public class FileContext : NameContext
     {
         if (definition is ImportDefinition id)
         {
-            var imports = Imports.Select(i => i.Namespace == id.Namespace).ToArray();
-            if (imports.Length == 1)
+            var imports = Imports.Where(i => i.Name == id.Name).ToArray();
+            if (imports.Length > 0)
                 return false;
-            else if (imports.Length > 1)
-                throw new Exception("multiple identical imports found");
 
             Imports.Add(id);
             return true;
@@ -30,6 +28,6 @@ public class FileContext : NameContext
 
     protected override IEnumerable<Definition> getAllWithName(string name)
         => Project.SelectMany(file => file)
-            .Concat(Imports.SelectMany(i => i.Namespace ?? (IEnumerable<Definition>)[]))
+            .Concat(Imports.Where(i => i.Namespace != null).SelectMany(i => i.Namespace!))
             .Where(def => def.Name == name);
 }

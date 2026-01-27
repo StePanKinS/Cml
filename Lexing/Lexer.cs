@@ -128,6 +128,12 @@ public class Lexer(string path, string fileName)
                         state = LexerState.Char;
                         continue;
                     }
+                    if (c == '/')
+                    {
+                        state = LexerState.Symbol;
+                        acum += c;
+                        continue;
+                    }
                     if (singleSymbols.ContainsKey(c))
                     {
                         acum += c;
@@ -202,6 +208,22 @@ public class Lexer(string path, string fileName)
                     goto case LexerState.Default;
 
                 case LexerState.Symbol:
+                    if (acum == "/" && (c == '/' || c == '*'))
+                    {
+                        if (c == '/')
+                        {
+                            acum = "";
+                            state = LexerState.SingleLineComment;
+                            lt.NextCol();
+                        }
+                        else
+                        {
+                            acum = "";
+                            state = LexerState.MultiLineComment;
+                            lt.NextCol();
+                        }
+                        continue;
+                    }
                     if (doubleSymbols.ContainsKey((acum[0], c)))
                     {
                         lt.NextCol();
@@ -212,6 +234,65 @@ public class Lexer(string path, string fileName)
                     }
                     endAcum();
                     goto case LexerState.Default;
+
+                case LexerState.SingleLineComment:
+                    lt.NextCol();
+                    if (c == '\n')
+                    {
+                        lt.NextLine();
+                        state = LexerState.Default;
+                        continue;
+                    }
+                    if (c == '\r')
+                    {
+                        state = LexerState.CarretReturn;
+                        continue;
+                    }
+                    continue;
+
+                case LexerState.MultiLineComment:
+                    lt.NextCol();
+                    if (c == '*')
+                    {
+                        state = LexerState.MultiLineCommentAfterStar;
+                        continue;
+                    }
+                    if (c == '\n')
+                    {
+                        lt.NextLine();
+                        continue;
+                    }
+                    if (c == '\r')
+                    {
+                        state = LexerState.CarretReturn;
+                        continue;
+                    }
+                    continue;
+
+                case LexerState.MultiLineCommentAfterStar:
+                    lt.NextCol();
+                    if (c == '/')
+                    {
+                        state = LexerState.Default;
+                        continue;
+                    }
+                    if (c == '*')
+                    {
+                        continue; // dont forgor ** idk
+                    }
+                    if (c == '\n')
+                    {
+                        state = LexerState.MultiLineComment;
+                        lt.NextLine();
+                        continue;
+                    }
+                    if (c == '\r')
+                    {
+                        state = LexerState.CarretReturn;
+                        continue;
+                    }
+                    state = LexerState.MultiLineComment;
+                    continue;
 
                 case LexerState.String:
                     lt.NextCol();
@@ -321,6 +402,10 @@ public class Lexer(string path, string fileName)
         CarretReturn,
         Char,
         Symbol,
+        
+        SingleLineComment,
+        MultiLineComment,
+        MultiLineCommentAfterStar,
     }
 
     private class LocationTracker(string fileName)

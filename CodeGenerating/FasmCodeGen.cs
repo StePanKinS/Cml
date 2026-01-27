@@ -624,6 +624,12 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
             case UnaryOperationTypes.Decrement:
                 generateIncrement(uo.Operand, uo.OperationType == UnaryOperationTypes.Decrement, false, locals, sb);
                 return;
+            
+            case UnaryOperationTypes.Inverse:
+                sb.Append($"        ; Unary operation inverse {uo.Location}\n");
+                generateExecutable(uo.Operand, locals, sb);
+                sb.Append($"    xor rax, 1\n");
+                return;
 
             default:
                 throw new NotImplementedException($"Unary operation {uo.OperationType}");
