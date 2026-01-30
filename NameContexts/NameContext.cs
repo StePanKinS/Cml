@@ -12,11 +12,12 @@ public class NameContext(NameContext parent, NamespaceDefinition nmspDef) : IEnu
     public List<FunctionDefinition> Functions = [];
     public List<VariableDefinition> Variables = [];
     public List<DefaultTypeDefinition> DefaultTypes = [];
+    public List<EnumDefinition> Enums = [];
 
     public virtual bool Append(Definition definition)
     {
         if ((from def in (IEnumerable<Definition>)[.. Namespaces, .. Structs,
-            .. Functions, .. Variables, ..DefaultTypes]
+            .. Functions, .. Variables, ..DefaultTypes, ..Enums]
              where def.Name == definition.Name
              select def).ToArray().Length > 0)
             return false;
@@ -28,6 +29,9 @@ public class NameContext(NameContext parent, NamespaceDefinition nmspDef) : IEnu
                 return true;
             case StructDefinition struc:
                 Structs.Add(struc);
+                return true;
+            case EnumDefinition enu:
+                Enums.Add(enu);
                 return true;
             case FunctionDefinition func:
                 Functions.Add(func);
@@ -107,6 +111,7 @@ public class NameContext(NameContext parent, NamespaceDefinition nmspDef) : IEnu
         IEnumerable<Definition> all = [
             .. Namespaces,
             .. Structs,
+            .. Enums,
             .. Functions,
             .. Variables,
             .. DefaultTypes,
@@ -145,7 +150,7 @@ public class NameContext(NameContext parent, NamespaceDefinition nmspDef) : IEnu
     public int Size => 0;
 
     public IEnumerator<Definition> GetEnumerator()
-        => ((IEnumerable<Definition>)[.. Namespaces, .. Structs, .. Functions, .. Variables, .. DefaultTypes]).GetEnumerator();
+        => ((IEnumerable<Definition>)[.. Namespaces, .. Structs, .. Enums, .. Functions, .. Variables, .. DefaultTypes]).GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator()
         => GetEnumerator();

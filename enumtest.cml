@@ -1,0 +1,31 @@
+
+namespace clib
+{
+    external int printf(char* fmt, void* ptr);
+}
+import clib;
+
+void vro(Weather wthr) 
+{
+    if (wthr == Weather.Sunny) printf("Sunny btw!");
+    if (wthr == Weather.Rainy) printf("Rainy btw!");
+    if (wthr == Weather.Cloudy) printf("Cloudy btw!");
+} 
+
+enum Weather : ulong
+{
+    Sunny,
+    Rainy = 2,
+    Cloudy,
+}
+
+export int main(int argc, char** argv)
+{
+    Weather w = Weather.Cloudy;
+    printf("%d\n", w);
+    w = Weather.of("Sunny");
+    printf("%d\n", w);
+    printf("%s\n", w.name());
+    vro(w);
+    return 0;
+}

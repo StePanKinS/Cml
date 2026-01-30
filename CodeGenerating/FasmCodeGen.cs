@@ -89,6 +89,7 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
         generateStrings(sb);
         generateDoubles(sb);
 
+        sb.Append("extrn strcmp\n"); // for Enum.of and Enum.name        
 
         return sb.ToString();
     }
@@ -175,7 +176,7 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
         for (int i = 0; ic != intCount || fc != floatCount; i++)
         {
             Typ itype = fn.Arguments.Arguments[i].Type;
-            if ((itype is DefaultType.Integer || itype is Pointer)
+            if ((itype is DefaultType.Integer || itype is Pointer || itype is EnumType)
                 && ic < intCount)
                 sb.Append($"    push {CallRegisters[ic++]}\n");
             else if (itype is DefaultType.FloatingPoint fp
@@ -331,9 +332,71 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
                     break;
                 }
 
+            case EnumMemberAccess ema:
+                sb.Append($"        ; Enum member {ema.EnumType.Name}.{ema.MemberName} = {ema.Value}\n");
+                sb.Append($"    mov rax, {ema.Value}\n");
+                return;
+
+            case EnumOfMethod eom:
+                generateEnumOf(eom, locals, sb);
+                return;
+
+            case EnumNameMethod enm:
+                generateEnumName(enm, locals, sb);
+                return;
+
             default:
                 throw new NotImplementedException($"Code generation for {exe.GetType().Name} not implemented");
         }
+    }
+
+    private void generateEnumOf(EnumOfMethod eom, INameContainer locals, StringBuilder sb)
+    {
+        sb.Append($"        ; Enum.of {eom.EnumType.Name}\n");
+        generateExecutable(eom.NameArgument, locals, sb);
+        // rax contains char*
+        // We need to compare it with each member name
+        int endLabel = ifsCounter++;
+        foreach (var member in eom.EnumType.Members)
+        {
+            int nextLabel = ifsCounter++;
+            int sIdx = stringLiterals.Count;
+            stringLiterals.Add(member.Name);
+            
+            sb.AppendLine($"    push rax");
+            sb.AppendLine($"    lea rdi, [rax]");
+            sb.AppendLine($"    lea rsi, [str{sIdx}]");
+            sb.AppendLine($"    call strcmp"); // Assuming strcmp is available or we need to implement it
+            sb.AppendLine($"    pop rax");
+            sb.AppendLine($"    test rax, rax");
+            sb.AppendLine($"    jnz next_enum_of_{nextLabel}");
+            sb.AppendLine($"    mov rax, {member.Value}");
+            sb.AppendLine($"    jmp end_enum_of_{endLabel}");
+            sb.AppendLine($"next_enum_of_{nextLabel}:");
+        }
+        sb.AppendLine($"    mov rax, 0 ; Default or error");
+        sb.AppendLine($"end_enum_of_{endLabel}:");
+    }
+
+    private void generateEnumName(EnumNameMethod enm, INameContainer locals, StringBuilder sb)
+    {
+        sb.Append($"        ; Enum.name {enm.EnumType.Name}\n");
+        generateExecutable(enm.EnumValue, locals, sb);
+        // rax contains enum value
+        int endLabel = ifsCounter++;
+        foreach (var member in enm.EnumType.Members)
+        {
+            int nextLabel = ifsCounter++;
+            sb.AppendLine($"    cmp rax, {member.Value}");
+            sb.AppendLine($"    jne next_enum_name_{nextLabel}");
+            int sIdx = stringLiterals.Count;
+            stringLiterals.Add(member.Name);
+            sb.AppendLine($"    lea rax, [str{sIdx}]");
+            sb.AppendLine($"    jmp end_enum_name_{endLabel}");
+            sb.AppendLine($"next_enum_name_{nextLabel}:");
+        }
+        sb.AppendLine($"    mov rax, 0 ; Default or error");
+        sb.AppendLine($"end_enum_name_{endLabel}:");
     }
 
     private void generateGetElementAddress(GetElement ge, INameContainer locals, StringBuilder sb)
@@ -439,7 +502,8 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
                     throw new Exception($"Unsupported lhs {bo.Left} in assign");
 
                 if (bo.Right.ReturnType is DefaultType.Integer
-                    || bo.Right.ReturnType is Pointer)
+                    || bo.Right.ReturnType is Pointer
+                    || bo.Right.ReturnType is EnumType)
                     sb.Append($"    mov [{target}], {RegisterSizes[bo.Right.ReturnType.Size]}\n");
                 else if (bo.Right.ReturnType is DefaultType.FloatingPoint fp)
                 {
@@ -471,7 +535,7 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
             case BinaryOperationTypes.BitwiseOr:
             case BinaryOperationTypes.BitwiseXor:
                 sb.Append($"        ; {bo.OperationType} {bo.Location}\n");
-                if (bo.ReturnType is DefaultType.Integer)
+                if (bo.ReturnType is DefaultType.Integer || bo.ReturnType is EnumType)
                 {
                     generateExecutable(bo.Right, locals, sb);
                     sb.Append($"    push rax\n");
@@ -504,7 +568,7 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
 
                 string compareOperation;
 
-                if (bo.Left.ReturnType is DefaultType.Integer)
+                if (bo.Left.ReturnType is DefaultType.Integer || bo.Left.ReturnType is EnumType)
                 {
                     generateExecutable(bo.Right, locals, sb);
                     sb.Append($"    push rax\n");
@@ -696,6 +760,8 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
         else if (operand.ReturnType is DefaultType.FloatingPoint
             && target is DefaultType.Integer)
             sb.Append($"    cvtsd2si rax, xmm0\n");
+        else if (operand.ReturnType is EnumType || target is EnumType)
+            return; // Enums are treated as their underlying integer types
         else
             throw new NotImplementedException("Only integer, pointer ans float casts are implemented");
 
@@ -740,7 +806,8 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
             generateExecutable(fc.Args[i], locals, sb);
 
             if (fc.Args[i].ReturnType is DefaultType.Integer
-                || fc.Args[i].ReturnType is Pointer)
+                || fc.Args[i].ReturnType is Pointer
+                || fc.Args[i].ReturnType is EnumType)
                 sb.Append($"    push rax\n");
             else if (fc.Args[i].ReturnType is DefaultType.FloatingPoint fp)
             {
@@ -757,7 +824,8 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
         for (int i = 0; ic != intCount || flc != floatCount; i++)
         {
             if (fc.Args[i].ReturnType is DefaultType.Integer
-                || fc.Args[i].ReturnType is Pointer)
+                || fc.Args[i].ReturnType is Pointer
+                || fc.Args[i].ReturnType is EnumType)
                 sb.Append($"    pop {CallRegisters[ic++]}\n");
             else if (fc.Args[i].ReturnType is DefaultType.FloatingPoint fp)
             {
@@ -812,7 +880,7 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
     // do not pass value ptr in rax...
     private void loadValue(string source, Typ valueType, INameContainer locals, StringBuilder sb)
     {
-        if (valueType is Pointer)
+        if (valueType is Pointer || valueType is EnumType)
             sb.Append($"    mov rax, [{source}]\n");
         else if (valueType is DefaultType.Integer it)
         {

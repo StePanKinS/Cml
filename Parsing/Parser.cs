@@ -74,6 +74,15 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                         readStruct(er, nmsp);
                         continue;
                     }
+                    if (kwdToken.Value == Keywords.Enum)
+                    {
+                        if (modifyers.Count != 0)
+                            errorer.Append("Modifyers are not applicable to enums", new Location(modifyers[0], modifyers[^1]));
+
+                        modifyers.Clear();
+                        readEnum(er, nmsp);
+                        continue;
+                    }
                     if (kwdToken.Value == Keywords.Namespace)
                     {
                         if (modifyers.Count != 0)
@@ -261,6 +270,103 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         Location location = new(kwdToken, t);
         StructDefinition sd = new(nameToken.Value, members, nmsp, [], location);
         nmsp.Append(sd);
+    }
+
+    private void readEnum(EnumerableReader<Token> er, NamespaceDefinition nmsp)
+    {
+        Token? token;
+        er.Read(out token);
+        var kwdToken = (Token<Keywords>)token!;
+
+        if (!er.Read(out token) || token.Type != TokenType.Identifier)
+        {
+            errorer.Append("Expected enum name", token?.Location ?? kwdToken.Location);
+            return;
+        }
+        var nameToken = (Token<string>)token;
+
+        Typ underlyingType = DefaultType.Integer.Int;
+        if (er.Peek(out token) && token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.Colon)
+        {
+            er.Read(out _);
+            Token[]? typeName = readTypeName(er);
+            if (typeName != null)
+            {
+                var resolved = resolveType(nmsp.NameContext, typeName);
+                if (resolved != null)
+                {
+                    if (resolved is not DefaultType.Integer)
+                    {
+                        errorer.Append("Enum underlying type must be an integer type", typeName.TokensLocation());
+                    }
+                    else
+                    {
+                        underlyingType = resolved;
+                    }
+                }
+            }
+        }
+
+        if (!er.Read(out token) || token.Type != TokenType.Symbol || ((Token<Symbols>)token).Value != Symbols.CurlyOpen)
+        {
+            errorer.Append("Expected `{`", token?.Location ?? nameToken.Location);
+            return;
+        }
+
+        List<(string name, long value)> members = [];
+        long nextValue = 0;
+
+        while (true)
+        {
+            if (!er.Peek(out token)) break;
+            if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CurlyClose)
+            {
+                er.Read(out _);
+                break;
+            }
+
+            if (token.Type != TokenType.Identifier)
+            {
+                errorer.Append("Expected enum member name", token.Location);
+                er.Read(out _);
+                continue;
+            }
+
+            er.Read(out token);
+            var memberName = ((Token<string>)token!).Value;
+
+            if (er.Peek(out token) && token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.Equals)
+            {
+                er.Read(out _);
+                if (!er.Read(out token) || token.Type != TokenType.Literal || (token is not Token<long> && token is not Token<ulong>))
+                {
+                    errorer.Append("Expected integer literal for enum member value", token?.Location ?? kwdToken.Location);
+                }
+                else
+                {
+                    if (token is Token<long> l) nextValue = l.Value;
+                    else nextValue = (long)((Token<ulong>)token).Value;
+                }
+            }
+
+            if (members.Any(m => m.name == memberName))
+            {
+                errorer.Append($"Enum member `{memberName}` already defined", token!.Location);
+            }
+            else
+            {
+                members.Add((memberName, nextValue));
+                nextValue++;
+            }
+
+            if (er.Peek(out token) && token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.Comma)
+            {
+                er.Read(out _);
+            }
+        }
+
+        EnumDefinition enumDef = new(nameToken.Value, underlyingType, members.ToArray(), nmsp, [], new Location(kwdToken.Location, token?.Location ?? nameToken.Location));
+        nmsp.Append(enumDef);
     }
 
     private void readNamespace(EnumerableReader<Token> er, NamespaceDefinition nmsp)
@@ -676,6 +782,8 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             }
             else if (d is DefaultTypeDefinition)
                 continue;
+            else if (d is EnumDefinition)
+                continue;
             else if (d is VariableDefinition varDef)
                 throw new NotImplementedException("Variable definition");
             else
@@ -791,6 +899,8 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             return sdef.StructType;
         else if (def is DefaultTypeDefinition dtdef)
             return dtdef.Type;
+        else if (def is EnumDefinition edef)
+            return edef.EnumType;
         else
         {
             errorer.Append($"{def} doesnt represent type", loc);
@@ -1534,6 +1644,9 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
     private Typ? getLeastCommonType(Typ a, Typ b)
     {
+        if (a is EnumType ea) a = ea.UnderlyingType;
+        if (b is EnumType eb) b = eb.UnderlyingType;
+
         if (a is DefaultType.Integer inta
             && b is DefaultType.Integer intb)
         {
@@ -1597,6 +1710,12 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
               || tp.PointsTo == DefaultType.Void))
             allowed = true;
 
+        else if (e.ReturnType is EnumType ee && (targetType == ee.UnderlyingType || (targetType is Pointer tp2 && tp2.PointsTo == DefaultType.Void)))
+            allowed = true;
+
+        else if (targetType is EnumType te && (e.ReturnType == te.UnderlyingType || (e.ReturnType is Pointer rp2 && rp2.PointsTo == DefaultType.Void)))
+            allowed = true;
+
         if (allowed)
             return new UnaryOperation(UnaryOperationTypes.Cast, e, targetType, e.Location);
         else
@@ -1658,6 +1777,8 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                     return new NamespaceValue(nmspDef, location);
                 case StructDefinition structDef:
                     return new TypeValue(structDef.StructType, location);
+                case EnumDefinition enumDef:
+                    return new TypeValue(enumDef.EnumType, location);
                 case FunctionDefinition fnDef:
                     retType = new FunctionPointer(fnDef);
                     break;
@@ -1669,8 +1790,38 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             }
             return new Identifyer(def, retType, location);
         }
+        else if (lhs is TypeValue tv)
+        {
+            if (tv.Type is EnumType et)
+            {
+                if (nameToken.Value == "of")
+                {
+                    return new EnumStaticMethodValue(et, nameToken.Value, location); // for now just special TypeValue
+                }
+
+                var (Name, Value) = et.Members.FirstOrDefault(m => m.Name == nameToken.Value);
+                if (Name != null)
+                {
+                    return new EnumMemberAccess(et, Name, Value, location);
+                }
+
+                errorer.Append($"Enum `{et.Name}` does not contain member `{nameToken.Value}`", nameToken.Location);
+                return null;
+            }
+
+            errorer.Append($"Type `{tv.Type.Name}` does not have static members", nameToken.Location);
+            return null;
+        }
         else
         {
+            if (lhs.ReturnType is EnumType et)
+            {
+                if (nameToken.Value == "name")
+                {
+                    return new EnumInstanceMethodValue(lhs, et, nameToken.Value, location);
+                }
+            }
+
             if (lhs.ReturnType is not StructType st)
             {
                 errorer.Append($"Expected composite type, not {lhs.ReturnType}", lhs.Location);
@@ -1691,6 +1842,72 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
     private Executable? parseFuncCall(Executable lhs, Context ctx)
     {
         ctx.Tokens.Read();
+
+        if (lhs is EnumStaticMethodValue esm)
+        {
+            if (esm.MethodName == "of")
+            {
+                List<Executable> enumArgs = [];
+                while (true)
+                {
+                    if (!ctx.Tokens.Peek(out var token))
+                    {
+                        errorer.Append("Unexpected end of file", token!.Location);
+                        return null;
+                    }
+                    if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleClose)
+                    {
+                        ctx.Tokens.Read();
+                        break;
+                    }
+                    Executable? e = parseExpression(ctx, [Symbols.CircleClose, Symbols.Comma], 0, false);
+                    if (e == null) return null;
+                    enumArgs.Add(e);
+                    if (ctx.Tokens.Peek(out token) && token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.Comma)
+                        ctx.Tokens.Read();
+                }
+
+                if (enumArgs.Count != 1)
+                {
+                    errorer.Append("Enum.of expects exactly 1 argument", esm.Location);
+                    return null;
+                }
+                if (enumArgs[0].ReturnType is not Pointer p || p.PointsTo != DefaultType.Char)
+                {
+                    errorer.Append("Enum.of expects char* argument", enumArgs[0].Location);
+                }
+                
+                return new EnumOfMethod(esm.EnumType, enumArgs[0], esm.Location);
+            }
+        }
+
+        if (lhs is EnumInstanceMethodValue eim)
+        {
+            if (eim.MethodName == "name")
+            {
+                while (true)
+                {
+                    if (!ctx.Tokens.Peek(out var token))
+                    {
+                        errorer.Append("Unexpected end of file", token!.Location);
+                        return null;
+                    }
+                    if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleClose)
+                    {
+                        ctx.Tokens.Read();
+                        break;
+                    }
+                    Executable? e = parseExpression(ctx, [Symbols.CircleClose, Symbols.Comma], 0, false);
+                    if (e == null) return null;
+                    errorer.Append("Enum.name expects 0 arguments", e.Location);
+                    if (ctx.Tokens.Peek(out token) && token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.Comma)
+                        ctx.Tokens.Read();
+                }
+
+                return new EnumNameMethod(eim.EnumType, eim.Operand, eim.Location);
+            }
+        }
+
         if (lhs.ReturnType is not FunctionPointer funcPtr)
         {
             errorer.Append("Can not call non-function value", lhs.Location);
@@ -1774,6 +1991,11 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         else if (def is DefaultTypeDefinition dtd)
         {
             executable = new TypeValue(dtd.Type, ident.Location);
+            return true;
+        }
+        else if (def is EnumDefinition enumDef)
+        {
+            executable = new TypeValue(enumDef.EnumType, ident.Location);
             return true;
         }
 

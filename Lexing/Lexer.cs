@@ -20,6 +20,7 @@ public class Lexer(string path, string fileName)
         { ';', Symbols.Semicolon       },
         { ',', Symbols.Comma           },
         { '.', Symbols.Dot             },
+        { ':', Symbols.Colon           },
 
         { '=', Symbols.Equals          },
 

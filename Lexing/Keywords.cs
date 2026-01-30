@@ -12,6 +12,7 @@ public enum Keywords
     Namespace,
     External,
     Export,
+    Enum,
     True,
     False,
     Break,

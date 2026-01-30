@@ -52,14 +52,14 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
 
         foreach (var v in Arguments)
         {
-            if (v.Type is DefaultType.Integer || v.Type is Pointer)
+            if (v.Type is DefaultType.Integer || v.Type is Pointer || v.Type is EnumType)
             {
                 if (intCnt < 6)
                     intCnt++;
                 else
                 {
                     memCnt++;
-                    if (variable.Type is DefaultType.Integer || variable.Type is Pointer)
+                    if (variable.Type is DefaultType.Integer || variable.Type is Pointer || variable.Type is EnumType)
                         inMemory = true;
                 }
             }
@@ -120,7 +120,8 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
         foreach (var i in types)
         {
             if (i is DefaultType.Integer
-                || i is Pointer)
+                || i is Pointer
+                || i is EnumType)
             {
                 if (intCount < 6)
                     intCount++;
