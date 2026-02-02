@@ -9,6 +9,7 @@ public class StructType(string name, StructType.StructMember[] members, Function
         get {
             if (size != -1)
                 return size;
+            size = calculateSize(Members);
             return size;
         }
     }

@@ -154,3 +154,16 @@ public record Continue
     Location Location
 ) : Executable(DefaultType.Void, Location);
 
+public record StructLiteral
+(
+    StructType StructType,
+    Executable[] FieldValues,
+    Location Location
+) : Executable(StructType, Location);
+
+public record StaticFunctionValue
+(
+    FunctionDefinition Function,
+    Location Location
+) : Executable(new FunctionPointer(Function), Location);
+

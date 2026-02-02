@@ -357,9 +357,40 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
                 generateEnumName(enm, locals, sb);
                 return;
 
+            case StructLiteral sl:
+                generateStructLiteral(sl, locals, sb);
+                return;
+
+            case StaticFunctionValue sfv:
+                sb.Append($"        ; Static function value {sfv.Function.FullName}\n");
+                sb.Append($"    mov rax, {sfv.Function.FullName}\n");
+                return;
+
             default:
                 throw new NotImplementedException($"Code generation for {exe.GetType().Name} not implemented");
         }
+    }
+
+    private void generateStructLiteral(StructLiteral sl, INameContainer locals, StringBuilder sb)
+    {
+        sb.Append($"        ; Struct literal {sl.StructType.Name}\n");
+        sb.Append($"    sub rsp, {sl.StructType.Size}\n");
+        sb.Append($"    mov rbx, rsp\n");
+
+        int offset = 0;
+        for (int i = 0; i < sl.FieldValues.Length; i++)
+        {
+            var fieldValue = sl.FieldValues[i];
+            var memberType = sl.StructType.Members[i].Type;
+
+            sb.Append($"        ; Field {sl.StructType.Members[i].Name} at offset {offset}\n");
+            generateExecutable(fieldValue, locals, sb);
+            sb.Append($"    mov [rbx + {offset}], rax\n");
+
+            offset += memberType.Size;
+        }
+
+        sb.Append($"    mov rax, rbx\n");
     }
 
     private void generateEnumOf(EnumOfMethod eom, INameContainer locals, StringBuilder sb)
