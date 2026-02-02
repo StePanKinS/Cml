@@ -1,8 +1,9 @@
 namespace Cml.Types;
 
-public class StructType(string name, StructType.StructMember[] members) : Typ(name, -1)
+public class StructType(string name, StructType.StructMember[] members, FunctionDefinition[] methods) : Typ(name, -1)
 {
     public StructMember[] Members = members;
+    public FunctionDefinition[] Methods = methods;
 
     public override int Size {
         get {
@@ -19,6 +20,16 @@ public class StructType(string name, StructType.StructMember[] members) : Typ(na
             throw new Exception("Several structure members with the same name");
         if (mems.Length == 1)
             return mems[0];
+        return null;
+    }
+
+    public FunctionDefinition? GetMethod(string name)
+    {
+        var meths = (from meth in Methods where meth.Name == name select meth).ToArray();
+        if (meths.Length > 1)
+            throw new Exception("Several methods with the same name");
+        if (meths.Length == 1)
+            return meths[0];
         return null;
     }
 

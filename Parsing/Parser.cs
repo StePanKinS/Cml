@@ -209,9 +209,16 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
         t = token;
         List<(Token[] type, Token<string> name)> members = [];
+        List<FunctionDefinition> methods = [];
 
         while (true)
         {
+            if (er.Peek(out token) && token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CurlyClose)
+            {
+                er.Read(out t);
+                break;
+            }
+
             Token[]? memType = readTypeName(er);
             if (memType == null)
                 return;
@@ -230,45 +237,62 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
             var memName = (Token<string>)token;
 
-            if (!er.Read(out token))
+            if (!er.Peek(out token))
             {
                 Location loc = new(kwdToken.Location, memName.Location);
-                errorer.Append($"Expected {StructMemberSeparator.ToString().ToLower()}. Got file end`", loc);
+                errorer.Append($"Expected {StructMemberSeparator.ToString().ToLower()} or `(`. Got file end`", loc);
                 return;
             }
 
-            if (members.Where(m => m.name.Value == memName.Value).Any())
+            if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleOpen)
+            {
+                FunctionDefinition fd = readFunctionDefinition(er, nmsp, [], memType, memName);
+                if (fd != null)
+                    methods.Add(fd);
+
+                // After a method, a comma is optional ig?!
+                if (er.Peek(out t) && t.Type == TokenType.Symbol && ((Token<Symbols>)t).Value == StructMemberSeparator)
+                {
+                    er.Read(out _);
+                }
+                continue;
+            }
+
+            if (members.Any(m => m.name.Value == memName.Value))
                 errorer.Append($"Struct member with this name `{memName.Value}` already exists", memName.Location);
             else
                 members.Add((memType, memName));
 
+            if (!er.Peek(out token))
+            {
+                Location loc = new(kwdToken.Location, memName.Location);
+                errorer.Append($"Expected {StructMemberSeparator.ToString().ToLower()} or `}}`. Got file end`", loc);
+                return;
+            }
+
             if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CurlyClose)
             {
-                t = token;
+                er.Read(out t);
                 break;
             }
 
-            if (token.Type != TokenType.Symbol || ((Token<Symbols>)token).Value != StructMemberSeparator)
+            if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == StructMemberSeparator)
             {
-                errorer.Append($"Expected {StructMemberSeparator.ToString().ToLower()}. Got {token}`", token.Location);
-                return;
+                er.Read(out _); // consume the comma
+                continue;
             }
 
-            if (!er.Peek(out t))
+            if (token.Type == TokenType.Identifier)
             {
-                Location loc = new(kwdToken.Location, token.Location);
-                errorer.Append("Expected `}` or next member type. Got file end`", loc);
-                return;
+                continue;
             }
-            if (t.Type == TokenType.Symbol && ((Token<Symbols>)t).Value == Symbols.CurlyClose)
-            {
-                er.Read(out _);
-                break;
-            }
+
+            errorer.Append($"Expected {StructMemberSeparator.ToString().ToLower()}, `}}`, or next member. Got {token}`", token.Location);
+            return;
         }
 
-        Location location = new(kwdToken, t);
-        StructDefinition sd = new(nameToken.Value, members, nmsp, [], location);
+        Location location = new(kwdToken, t!);
+        StructDefinition sd = new(nameToken.Value, members, methods, nmsp, [], location);
         nmsp.Append(sd);
     }
 
@@ -423,13 +447,11 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
     private void readFunction(EnumerableReader<Token> er, NamespaceDefinition nmsp, Keywords[] modifyers)
     {
         // TODO: start location is in keywords
-        Token? token;
-
         Token[]? typeName = readTypeName(er);
         if (typeName == null)
             return;
 
-        if (!er.Read(out token))
+        if (!er.Read(out var token))
         {
             errorer.Append("Expected function name. Got file end", typeName.TokensLocation());
             return;
@@ -441,18 +463,25 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         }
 
         var funcName = (Token<string>)token;
+        FunctionDefinition fd = readFunctionDefinition(er, nmsp, modifyers, typeName, funcName);
+        if (fd != null)
+            nmsp.Append(fd);
+    }
 
+    private FunctionDefinition readFunctionDefinition(EnumerableReader<Token> er, NamespaceDefinition nmsp, Keywords[] modifyers, Token[] typeName, Token<string> funcName)
+    {
+        Token? token;
         if (!er.Read(out token))
         {
             Location loc = new(typeName.TokensLocation(), funcName.Location);
             errorer.Append("Expected `(`. Got file name", loc);
-            return;
+            return null!;
         }
 
         if (token.Type != TokenType.Symbol || ((Token<Symbols>)token).Value != Symbols.CircleOpen)
         {
             errorer.Append("Expected `(`, not " + token.ToString(), token.Location);
-            return;
+            return null!;
         }
 
         FunctionDefinition fd = new(
@@ -472,7 +501,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 Location loc = new(typeName.TokensLocation(), t.Location);
                 errorer.Append($"Expected argument type or `)`. Got file end", loc);
                 er.Read(out _);
-                return;
+                return null!;
             }
             if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleClose)
             {
@@ -482,18 +511,18 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
             Token[]? argType = readTypeName(er);
             if (argType == null)
-                return;
+                return null!;
 
             if (!er.Read(out token))
             {
                 Location loc = new(typeName.TokensLocation(), argType.TokensLocation());
                 errorer.Append($"Expected argument name. Got file end", loc);
-                return;
+                return null!;
             }
             if (token.Type != TokenType.Identifier)
             {
                 errorer.Append($"Expected argument name. Got {token}", token.Location);
-                return;
+                return null!;
             }
 
             var argName = (Token<string>)token;
@@ -501,14 +530,14 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             if (!args.Append(argType, argName))
             {
                 errorer.Append($"Function argument with name `{argName.Value}` already exists", argName.Location);
-                return;
+                return null!;
             }
 
             if (!er.Read(out token))
             {
                 Location loc = new(typeName.TokensLocation(), argName.Location);
                 errorer.Append($"Expected `,` or `)`. Got file end`", loc);
-                return;
+                return null!;
             }
 
             if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleClose)
@@ -517,7 +546,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             if (token.Type != TokenType.Symbol || ((Token<Symbols>)token).Value != Symbols.Comma)
             {
                 errorer.Append($"Expected `,` or `)`. Got {token}`", token.Location);
-                return;
+                return null!;
             }
         }
 
@@ -525,7 +554,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         {
             errorer.Append("Expected function body. Got file end",
                 new Location(typeName.TokensLocation(), funcName.Location));
-            return;
+            return null!;
         }
 
         Token[] body;
@@ -540,7 +569,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         fd.UnparsedCode = body;
         fd.Location = location;
 
-        nmsp.Append(fd);
+        return fd;
     }
 
     private Token[]? readTypeName(EnumerableReader<Token> er)
@@ -804,6 +833,11 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             }
             m.Type = type;
         }
+
+        foreach (var method in structDef.Methods)
+        {
+            setFunctionReferences(method);
+        }
     }
 
     private void setFunctionReferences(FunctionDefinition funcDef)
@@ -924,6 +958,11 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 parseCode(nmspDef);
             if (d is FunctionDefinition funcDef)
                 parseCode(funcDef);
+            if (d is StructDefinition structDef)
+            {
+                foreach (var method in structDef.Methods)
+                    parseCode(method);
+            }
         }
     }
 
@@ -1830,7 +1869,13 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             var member = st.GetStructMember(nameToken.Value);
             if (member == null)
             {
-                errorer.Append($"Member with name {nameToken.Value} doesnt exist in type {lhs.ReturnType}", nameToken.Location);
+                var method = st.GetMethod(nameToken.Value);
+                if (method != null)
+                {
+                    return new MethodValue(lhs, method, location);
+                }
+
+                errorer.Append($"Member or method with name {nameToken.Value} doesnt exist in type {lhs.ReturnType}", nameToken.Location);
                 return null;
             }
             retType = member.Type;
@@ -1906,6 +1951,83 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
                 return new EnumNameMethod(eim.EnumType, eim.Operand, eim.Location);
             }
+        }
+
+        if (lhs is MethodValue mv)
+        {
+            Location loc2 = lhs.Location;
+            List<Executable> args2 = [];
+            
+            // First argument of a method is `self`
+            if (mv.Method.Arguments.Arguments.Count == 0)
+            {
+                errorer.Append($"Method {mv.Method.Name} must have at least one argument (self)", mv.Location);
+                return null;
+            }
+
+            Typ selfType = mv.Method.Arguments.Arguments[0].Type;
+            Executable? selfArg = promoteToType(mv.Operand, selfType);
+            if (selfArg == null)
+            {
+                if (selfType is Pointer p && p.PointsTo == mv.Operand.ReturnType)
+                {
+                    selfArg = new UnaryOperation(UnaryOperationTypes.GetReference, mv.Operand, selfType, mv.Operand.Location);
+                }
+                else
+                {
+                    errorer.Append($"Type missmatch for `self` argument: expected {selfType}, got {mv.Operand.ReturnType}", mv.Operand.Location);
+                    return null;
+                }
+            }
+            args2.Add(selfArg);
+
+            while (true)
+            {
+                if (!ctx.Tokens.Peek(out var token))
+                {
+                    errorer.Append("Unexpected end of file", token!.Location);
+                    return null;
+                }
+                if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleClose)
+                {
+                    loc2 = new(loc2, token.Location);
+                    ctx.Tokens.Read();
+                    break;
+                }
+                Executable? e = parseExpression(ctx, [Symbols.CircleClose, Symbols.Comma], 0, false);
+                if (e == null)
+                    return null;
+
+                if (args2.Count == mv.Method.Arguments.Arguments.Count)
+                {
+                    errorer.Append($"Too many arguments provided. {mv.Method.Arguments.Arguments.Count - 1} expected", lhs.Location);
+                    return null;
+                }
+
+                Executable? exe = promoteToType(e, mv.Method.Arguments.Arguments[args2.Count].Type);
+                if (exe == null)
+                {
+                    errorer.Append($"Type missmatch: {e.ReturnType}, {mv.Method.Arguments.Arguments[args2.Count].Type}", e.Location);
+                    return null;
+                }
+                args2.Add(exe);
+
+                if (!ctx.Tokens.Peek(out token))
+                {
+                    errorer.Append("Unexpected end of file", token!.Location);
+                    return null;
+                }
+                if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.Comma)
+                    ctx.Tokens.Read();
+            }
+
+            if (args2.Count != mv.Method.Arguments.Arguments.Count)
+            {
+                errorer.Append($"Too few arguments provided. {mv.Method.Arguments.Arguments.Count - 1} expected", lhs.Location);
+                return null;
+            }
+
+            return new MethodCall(mv.Operand, mv.Method, [.. args2], mv.Method.ReturnType, loc2);
         }
 
         if (lhs.ReturnType is not FunctionPointer funcPtr)

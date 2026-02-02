@@ -101,6 +101,22 @@ public record NamespaceValue
     Location Location
 ) : Executable(DefaultType.Void, Location);
 
+public record MethodValue
+(
+    Executable Operand,
+    FunctionDefinition Method,
+    Location Location
+) : Executable(new FunctionPointer(Method), Location);
+
+public record MethodCall
+(
+    Executable Operand,
+    FunctionDefinition Method,
+    Executable[] Args,
+    Typ ReturnType,
+    Location Location
+) : Executable(ReturnType, Location);
+
 public record TypeValue
 (
     Typ Type,

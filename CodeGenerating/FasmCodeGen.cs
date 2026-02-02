@@ -142,6 +142,10 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
                 case FunctionDefinition fn:
                     generateFunction(fn, sb);
                     break;
+                case StructDefinition sd:
+                    foreach (var method in sd.Methods)
+                        generateFunction(method, sb);
+                    break;
             }
         }
     }
@@ -218,6 +222,14 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
 
             case FunctionCall fc:
                 generateFunctionCall(fc, locals, sb);
+                return;
+
+            case MethodCall mc:
+                generateMethodCall(mc, locals, sb);
+                return;
+
+            case MethodValue mv:
+                generateMethodValue(mv, locals, sb);
                 return;
 
             case Identifyer id:
@@ -852,6 +864,21 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
         int stackSize = (stackCount + (pad ? 1 : 0)) * 8;
         if (stackSize > 0)
             sb.Append($"    add rsp, {stackSize}\n");
+    }
+
+    private void generateMethodCall(MethodCall mc, INameContainer locals, StringBuilder sb)
+    {
+        // Method call is just a function call with self pointer as first argument
+        sb.Append($"        ; Method call {mc.Location}\n");
+        FunctionCall fc = new(new Identifyer(mc.Method, new FunctionPointer(mc.Method), mc.Location), mc.Args, mc.ReturnType, mc.Location);
+        generateFunctionCall(fc, locals, sb);
+    }
+
+    private void generateMethodValue(MethodValue mv, INameContainer locals, StringBuilder sb)
+    {
+        sb.Append($"        ; Method value {mv.Location}\n");
+        string name = mv.Method.Modifyers.Contains(Keywords.External) ? mv.Method.Name : mv.Method.FullName;
+        sb.Append($"    lea rax, [{name}]\n");
     }
 
     private void generateIdentifyer(Identifyer id, INameContainer locals, StringBuilder sb)

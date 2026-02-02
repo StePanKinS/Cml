@@ -1,0 +1,23 @@
+
+namespace clib
+{
+    external int printf(char* fmt, void* ptr);
+}
+import clib;
+
+struct Point {
+    int x,
+    int y
+
+    void print(Point* self, int val) {
+        printf("%p\n", (void*)self);
+        printf("%d\n", (void*)(ulong)(long)val);
+    }
+}
+
+export int main(int argc, char** argv)
+{
+    Point p;
+    p.print(101);
+    return 0;
+}
