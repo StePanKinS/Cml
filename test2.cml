@@ -2,18 +2,19 @@
 namespace clib
 {
     external int printf(char* fmt, void* ptr);
+    external FILE* fopen(char* path, char* mode);
+    external FILE* fdopen(int fd, char* mode);
+    external char* fgets(char* buffer, int size, FILE* stream);
+    external int atoi(char* str);
 
-    namespace dummy.bro
+    struct FILE
     {
-        struct FILE
-        {
-            byte[216] _,
-        }
+        byte[216] _,
     }
 }
-import clib.dummy.bro;
+import clib;
 
-export int main(int argc, char** argv)
+export int printFILE(int argc, char** argv)
 {
     clib.printf("%d\n", (void*)(ulong)(long)argc);
     FILE* file = clib.fopen(*argv, "r");
@@ -27,8 +28,6 @@ export int main(int argc, char** argv)
         clib.printf("%p\n", (void*)(ulong)(*file)._[i]);
         i = i + 1;
     }
-
-    second.main2();
 
     return 0;
 }

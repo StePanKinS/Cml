@@ -1589,72 +1589,78 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         switch (op)
         {
             case BinaryOperationTypes.Assign:
-                Typ targetType;
-                if (left is Identifyer lhsIdent
-                    && lhsIdent.Definition is VariableDefinition varDef)
-                    targetType = varDef.Type;
-                else if (left is GetMember gm)
-                    targetType = gm.ReturnType;
-                else if (left is GetElement ge)
                 {
-                    if (ge.Operand.ReturnType is SizedArray sa)
-                        targetType = sa.ElementType;
-                    else if (ge.Operand.ReturnType is Pointer p)
-                        targetType = p.PointsTo;
-                    else
-                        throw new Exception($"Indexing {ge.Operand}. In verifyBinaryOperation");
-                }
-                else
-                {
-                    errorer.Append($"Unexpected lhs {left}", left.Location);
-                    return null;
-                }
-
-                if (targetType != right.ReturnType)
-                {
-                    var promoted = promoteToType(right, targetType);
-                    if (promoted == null)
+                    Typ targetType;
+                    if (left is Identifyer lhsIdent
+                        && lhsIdent.Definition is VariableDefinition varDef)
+                        targetType = varDef.Type;
+                    else if (left is GetMember gm)
+                        targetType = gm.ReturnType;
+                    else if (left is GetElement ge)
                     {
-                        errorer.Append($"Type missmatch: expected {targetType}, got {right.ReturnType}", right.Location);
+                        if (ge.Operand.ReturnType is SizedArray sa)
+                            targetType = sa.ElementType;
+                        else if (ge.Operand.ReturnType is Pointer p)
+                            targetType = p.PointsTo;
+                        else
+                            throw new Exception($"Indexing {ge.Operand}. In verifyBinaryOperation");
+                    }
+                    else
+                    {
+                        errorer.Append($"Unexpected lhs {left}", left.Location);
                         return null;
                     }
-                    right = promoted;
-                }
 
-                returnType = targetType;
-                break;
+                    if (targetType != right.ReturnType)
+                    {
+                        var promoted = promoteToType(right, targetType);
+                        if (promoted == null)
+                        {
+                            errorer.Append($"Type missmatch: expected {targetType}, got {right.ReturnType}", right.Location);
+                            return null;
+                        }
+                        right = promoted;
+                    }
+
+                    returnType = targetType;
+                    break;
+                }
 
             case BinaryOperationTypes.Add:
             case BinaryOperationTypes.Subtract:
             case BinaryOperationTypes.Multiply:
             case BinaryOperationTypes.Divide:
-                var t = getLeastCommonType(left.ReturnType, right.ReturnType);
-                var l = promoteToType(left, t);
-                var r = promoteToType(right, t);
-                if (l == null || r == null)
                 {
-                    errorer.Append($"Cant do math with types {left.ReturnType} and {right.ReturnType}", new Location(left.Location, right.Location));
-                    return null;
+                    var t = getLeastCommonType(left.ReturnType, right.ReturnType);
+                    var l = promoteToType(left, t);
+                    var r = promoteToType(right, t);
+                    if (l == null || r == null)
+                    {
+                        errorer.Append($"Cant do math with types {left.ReturnType} and {right.ReturnType}", new Location(left.Location, right.Location));
+                        return null;
+                    }
+                    left = l;
+                    right = r;
+                    returnType = t!;
+                    break;
                 }
-                left = l;
-                right = r;
-                returnType = t!;
-                break;
 
             case BinaryOperationTypes.Remainder:
-                if (left.ReturnType is not DefaultType.Integer li
-                    || right.ReturnType is not DefaultType.Integer ri)
                 {
-                    errorer.Append("Remainder operation can be applyed to only integer types", new Location(left.Location, right.Location));
-                    return null;
+                    if (left.ReturnType is not DefaultType.Integer li
+                        || right.ReturnType is not DefaultType.Integer ri)
+                    {
+                        errorer.Append("Remainder operation can be applyed to only integer types", new Location(left.Location, right.Location));
+                        return null;
+                    }
+                    int size = Math.Max(li.Size, ri.Size);
+                    if (li.Size != size)
+                        left = promoteToType(left, DefaultType.Integer.GetObject(size, li.IsSigned))!;
+                    if (ri.Size != size)
+                        right = promoteToType(right, DefaultType.Integer.GetObject(size, ri.IsSigned))!;
+                    returnType = li;
+                    break;
                 }
-                int size = Math.Max(li.Size, ri.Size);
-                if (li.Size != size)
-                    left = promoteToType(left, DefaultType.Integer.GetObject(size, li.IsSigned))!;
-                if (ri.Size != size)
-                    right = promoteToType(right, DefaultType.Integer.GetObject(size, ri.IsSigned))!;
-                returnType = li;
-                break;
 
             case BinaryOperationTypes.BitwiseAnd:
             case BinaryOperationTypes.BitwiseOr:
@@ -1676,23 +1682,46 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             case BinaryOperationTypes.GreaterEquals:
             case BinaryOperationTypes.IsEquals:
             case BinaryOperationTypes.NotEquals:
-                var type = getLeastCommonType(left.ReturnType, right.ReturnType);
-                var le = promoteToType(left, type);
-                var re = promoteToType(right, type);
-                if (le == null || re == null)
                 {
-                    errorer.Append($"Cant compare types {left.ReturnType} and {right.ReturnType}", new Location(left.Location, right.Location));
-                    return null;
+                    var type = getLeastCommonType(left.ReturnType, right.ReturnType);
+                    var le = promoteToType(left, type);
+                    var re = promoteToType(right, type);
+                    if (le == null || re == null)
+                    {
+                        errorer.Append($"Cant compare types {left.ReturnType} and {right.ReturnType}", new Location(left.Location, right.Location));
+                        return null;
+                    }
+                    left = le;
+                    right = re;
+                    returnType = DefaultType.Bool;
+                    break;
                 }
-                left = le;
-                right = re;
-                returnType = DefaultType.Bool;
-                break;
+
+            case BinaryOperationTypes.LogicalAnd:
+            case BinaryOperationTypes.LogicalOr:
+                {
+                    var l = promoteToType(left, DefaultType.Bool);
+                    var r = promoteToType(right, DefaultType.Bool);
+                    if (l == null || r == null)
+                        return reterror($"Cant operate on no bool types {left.ReturnType} and {right.ReturnType}", new Location(left, right));
+
+                    returnType = DefaultType.Bool;
+                    break;
+                }
 
             default:
                 throw new Exception($"Binary operation {op} not implemented in verifyBinaryOperation");
         }
         return new BinaryOperation(op, left, right, returnType, new Location(left.Location, right.Location));
+    }
+
+    private Executable? reterror(string msg, Location.ILocatable loc)
+        => reterror(msg, loc.Location);
+
+    private Executable? reterror(string msg, Location loc)
+    {
+        errorer.Append(msg, loc);
+        return null;
     }
 
     private Typ? getLeastCommonType(Typ a, Typ b)
@@ -2419,6 +2448,14 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             || from is DefaultType.Integer
             && to is DefaultType.FloatingPoint)
             return true;
+        if (from is Pointer pf
+            && to is SizedArray sat
+            && pf.PointsTo == sat.ElementType
+            || to is Pointer pt
+            && from is SizedArray saf
+            && pt.PointsTo == saf.ElementType)
+            return true;
+
         return false;
     }
 

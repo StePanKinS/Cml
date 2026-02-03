@@ -610,6 +610,8 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
                 sb.Append($"        ; {bo.OperationType} {bo.Location}\n");
 
                 string compareOperation;
+                if (bo.ReturnType != DefaultType.Bool)
+                    throw new Exception($"Compare op return type is not bool but {bo.ReturnType}");
 
                 if (bo.Left.ReturnType is DefaultType.Integer || bo.Left.ReturnType is EnumType)
                 {
@@ -676,6 +678,24 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
                 sb.Append($"    mov rax, rdx\n");
                 return;
 
+            case BinaryOperationTypes.LogicalAnd:
+                sb.AppendLine($"        ; LogicalAnd {bo.Location}");
+                generateExecutable(bo.Right, locals, sb);
+                sb.Append($"    push rax\n");
+                generateExecutable(bo.Left, locals, sb);
+                sb.AppendLine($"    pop rbx");
+                sb.AppendLine($"    and rax, rbx");
+                return;
+
+            case BinaryOperationTypes.LogicalOr:
+                sb.AppendLine($"        ; LogicalAnd {bo.Location}");
+                generateExecutable(bo.Right, locals, sb);
+                sb.Append($"    push rax\n");
+                generateExecutable(bo.Left, locals, sb);
+                sb.AppendLine($"    pop rbx");
+                sb.AppendLine($"    or rax, rbx");
+                return;
+
             default:
                 throw new NotImplementedException($"Binary operation {bo.OperationType} not implemented");
         }
@@ -687,7 +707,7 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
         {
             case UnaryOperationTypes.Cast:
                 sb.Append($"        ; Cast {uo.Location}\n");
-                generateCsat(uo.Operand, uo.ReturnType, locals, sb);
+                generateCast(uo.Operand, uo.ReturnType, locals, sb);
                 return;
 
             case UnaryOperationTypes.GetReference:
@@ -776,7 +796,7 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
         sb.AppendLine($"    mov rax, {(isPostfix ? "rbx" : "[rax]")}");
     }
 
-    private void generateCsat(Executable operand, Typ target, INameContainer locals, StringBuilder sb)
+    private void generateCast(Executable operand, Typ target, INameContainer locals, StringBuilder sb)
     {
         generateExecutable(operand, locals, sb);
         if (operand.ReturnType is Pointer || target is Pointer)

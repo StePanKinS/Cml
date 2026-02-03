@@ -1,12 +1,69 @@
-namespace clib
-{
-    external dummy.bro.FILE* fopen(char* path, char* mode);
-}
-
 import clib;
 
-namespace second
+export int main(int argc, char** argv)
 {
-    export void main2()
-        printf("Hi!\n", (void*)0);
+    int mind = 2147483647;
+    int lastMaxPos = -1;
+
+    int ppel = readInt();
+    int pel = readInt();
+
+    int curpos = 0;
+
+    loop {
+        curpos++;
+        int n = readInt();
+        printf("state: %d", (void*)(ulong)ppel);
+        printf(" %d", (void*)(ulong)pel);
+        printf(" %d\n", (void*)(ulong)n);
+        if (n == 0)
+            break;
+
+        if (ppel >= pel || pel <= n)
+        {
+            ppel = pel;
+            pel = n;
+            printf("peak not detected\n", (void*)0);
+            continue;
+        }
+
+        if (lastMaxPos == -1)
+        {
+            lastMaxPos = curpos;
+            ppel = pel;
+            pel = n;
+            printf("lastMaxPos is bruuuuh\n", (void*)0);
+            continue;
+        }
+
+        int d = curpos - lastMaxPos;
+        printf("calculated d: %d\n", (void*)(ulong)d);
+        if (d < mind)
+        {
+            printf("new mind %d\n", (void*)(ulong)d);
+            mind = d;
+        }
+
+        lastMaxPos = curpos;
+        ppel = pel;
+        pel = n;
+    }
+
+    if (mind == 2147483647)
+        printf("bruh, 0\n", (void*)0);
+    else
+        printf("%d\n", (void*)(ulong)mind);
+
+    return 0;
+}
+
+int readInt()
+{
+    FILE* stdin = fdopen(0, "r");
+    char[256] buffer;
+
+    char* str = fgets((char*)buffer, 256, stdin);
+    int n = atoi(str);
+
+    return n;
 }
