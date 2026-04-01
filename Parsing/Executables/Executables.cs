@@ -161,9 +161,9 @@ public record StructLiteral
     Location Location
 ) : Executable(StructType, Location);
 
-public record StaticFunctionValue
-(
-    FunctionDefinition Function,
-    Location Location
-) : Executable(new FunctionPointer(Function), Location);
+// public record StaticFunctionValue
+// (
+//     FunctionDefinition Function,
+//     Location Location
+// ) : Executable(new FunctionPointer(Function), Location);
 

@@ -38,7 +38,7 @@ rootCommand.Options.Add(printTokensOption);
 
 Option<string> backendOption = new("--backend", ["-b"])
 {
-    DefaultValueFactory = (_) => "fasm",
+    DefaultValueFactory = (_) => "llvm",
     Description = "Code generation backend: fasm or llvm",
 };
 rootCommand.Options.Add(backendOption);

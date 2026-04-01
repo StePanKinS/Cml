@@ -1875,39 +1875,46 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             }
             return new Identifyer(def, retType, location);
         }
-            else if (lhs is TypeValue tv)
+        else if (lhs is TypeValue tv)
+        {
+            if (tv.Type is EnumType et)
             {
-                if (tv.Type is EnumType et)
+                if (nameToken.Value == "of")
                 {
-                    if (nameToken.Value == "of")
-                    {
-                        return new EnumStaticMethodValue(et, nameToken.Value, location); // for now just special TypeValue
-                    }
-
-                    var (Name, Value) = et.Members.FirstOrDefault(m => m.Name == nameToken.Value);
-                    if (Name != null)
-                    {
-                        return new EnumMemberAccess(et, Name, Value, location);
-                    }
-
-                    errorer.Append($"Enum `{et.Name}` does not contain member `{nameToken.Value}`", nameToken.Location);
-                    return null;
-                }
-                else if (tv.Type is StructType st)
-                {
-                    var staticFunc = st.Methods.FirstOrDefault(m => m.Name == nameToken.Value && (m.Arguments.Arguments.Count == 0 || !(m.Arguments.Arguments[0].Type is Pointer p && p.PointsTo == st)));
-                    if (staticFunc != null)
-                    {
-                        return new StaticFunctionValue(staticFunc, location);
-                    }
-
-                    errorer.Append($"Struct `{st.Name}` does not have static function `{nameToken.Value}`", nameToken.Location);
-                    return null;
+                    return new EnumStaticMethodValue(et, nameToken.Value, location); // for now just special TypeValue
                 }
 
-                errorer.Append($"Type `{tv.Type.Name}` does not have static members", nameToken.Location);
+                var (Name, Value) = et.Members.FirstOrDefault(m => m.Name == nameToken.Value);
+                if (Name != null)
+                {
+                    return new EnumMemberAccess(et, Name, Value, location);
+                }
+
+                errorer.Append($"Enum `{et.Name}` does not contain member `{nameToken.Value}`", nameToken.Location);
                 return null;
             }
+            else if (tv.Type is StructType st)
+            {
+                var staticFunc = st.Methods.FirstOrDefault(m => m.Name == nameToken.Value && (
+                            m.Arguments.Arguments.Count == 0 ||
+                            !(m.Arguments.Arguments[0].Type is Pointer p && p.PointsTo == st)
+                            ));
+                if (staticFunc != null)
+                {
+                    return new Identifyer(
+                            staticFunc,
+                            new FunctionPointer(staticFunc),
+                            location
+                            );
+                }
+
+                errorer.Append($"Struct `{st.Name}` does not have static function `{nameToken.Value}`", nameToken.Location);
+                return null;
+            }
+
+            errorer.Append($"Type `{tv.Type.Name}` does not have static members", nameToken.Location);
+            return null;
+        }
         else
         {
             if (lhs.ReturnType is EnumType et)
@@ -2079,60 +2086,6 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
     {
         ctx.Tokens.Read();
 
-        if (lhs is StaticFunctionValue sfv)
-        {
-            Location staticLoc = lhs.Location;
-            List<Executable> staticArgs = [];
-
-            while (true)
-            {
-                if (!ctx.Tokens.Peek(out var token))
-                {
-                    errorer.Append("Unexpected end of file", token!.Location);
-                    return null;
-                }
-                if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleClose)
-                {
-                    staticLoc = new(staticLoc, token.Location);
-                    ctx.Tokens.Read();
-                    break;
-                }
-                Executable? e = parseExpression(ctx, [Symbols.CircleClose, Symbols.Comma], 0, false);
-                if (e == null)
-                    return null;
-
-                if (staticArgs.Count == sfv.Function.Arguments.Arguments.Count)
-                {
-                    errorer.Append($"Too many arguments provided. {sfv.Function.Arguments.Arguments.Count} expected", lhs.Location);
-                    return null;
-                }
-
-                Executable? exe = promoteToType(e, sfv.Function.Arguments.Arguments[staticArgs.Count].Type);
-                if (exe == null)
-                {
-                    errorer.Append($"Type missmatch: {e.ReturnType}, {sfv.Function.Arguments.Arguments[staticArgs.Count].Type}", e.Location);
-                    return null;
-                }
-                staticArgs.Add(exe);
-
-                if (!ctx.Tokens.Peek(out token))
-                {
-                    errorer.Append("Unexpected end of file", token!.Location);
-                    return null;
-                }
-                if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.Comma)
-                    ctx.Tokens.Read();
-            }
-
-            if (staticArgs.Count != sfv.Function.Arguments.Arguments.Count)
-            {
-                errorer.Append($"Too few arguments provided. {sfv.Function.Arguments.Arguments.Count} expected", lhs.Location);
-                return null;
-            }
-
-            return new FunctionCall(lhs, [.. staticArgs], sfv.Function.ReturnType, staticLoc);
-        }
-
         if (lhs is EnumStaticMethodValue esm)
         {
             if (esm.MethodName == "of")
@@ -2166,7 +2119,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 {
                     errorer.Append("Enum.of expects char* argument", enumArgs[0].Location);
                 }
-                
+
                 return new EnumOfMethod(esm.EnumType, enumArgs[0], esm.Location);
             }
         }
@@ -2202,7 +2155,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         {
             Location loc2 = lhs.Location;
             List<Executable> args2 = [];
-            
+
             // First argument of a method is `self`
             if (mv.Method.Arguments.Arguments.Count == 0)
             {

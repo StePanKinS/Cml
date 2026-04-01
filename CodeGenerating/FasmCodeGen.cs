@@ -73,6 +73,7 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
 
 
     public string Generate()
+        // => throw new Exception();
         => topLevel();
 
     private string topLevel()
@@ -361,10 +362,10 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
                 generateStructLiteral(sl, locals, sb);
                 return;
 
-            case StaticFunctionValue sfv:
-                sb.Append($"        ; Static function value {sfv.Function.FullName}\n");
-                sb.Append($"    mov rax, {sfv.Function.FullName}\n");
-                return;
+            // case StaticFunctionValue sfv:
+            //     sb.Append($"        ; Static function value {sfv.Function.FullName}\n");
+            //     sb.Append($"    mov rax, {sfv.Function.FullName}\n");
+            //     return;
 
             default:
                 throw new NotImplementedException($"Code generation for {exe.GetType().Name} not implemented");

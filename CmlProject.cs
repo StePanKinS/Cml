@@ -8,7 +8,7 @@ public class CmlProject(
     string? tmpBuildDir = null,
     bool cleanBuild = false,
     bool printTokens = false,
-    string backend = "fasm"
+    string backend = "llvm"
 )
 {
     public string Name = name;

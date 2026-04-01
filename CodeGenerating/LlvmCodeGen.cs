@@ -429,13 +429,13 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
             case StructLiteral sl:
                 return generateStructLiteral(sl, locals, sb);
 
-            case StaticFunctionValue sfv:
-                {
-                    sb.AppendLine($"    ; Static function value {sfv.Function.FullName}");
-                    string result = getNextValueName();
-                    sb.AppendLine($"    {result} = bitcast {getLlvmType(sfv.Function.ReturnType)} ()* @{sfv.Function.FullName} to i64");
-                    return result;
-                }
+            // case StaticFunctionValue sfv:
+            //     {
+            //         sb.AppendLine($"    ; Static function value {sfv.Function.FullName}");
+            //         string result = getNextValueName();
+            //         sb.AppendLine($"    {result} = bitcast {getLlvmType(sfv.Function.ReturnType)} ()* @{sfv.Function.FullName} to i64");
+            //         return result;
+            //     }
 
             default:
                 throw new NotImplementedException($"Code generation for {exe.GetType().Name} not implemented");
