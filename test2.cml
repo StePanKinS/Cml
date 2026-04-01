@@ -31,3 +31,6 @@ export int printFILE(int argc, char** argv)
 
     return 0;
 }
+
+// export int main()
+//     return 0;

@@ -7,7 +7,8 @@ public class CmlProject(
     string? output = null,
     string? tmpBuildDir = null,
     bool cleanBuild = false,
-    bool printTokens = false
+    bool printTokens = false,
+    string backend = "fasm"
 )
 {
     public string Name = name;
@@ -17,4 +18,5 @@ public class CmlProject(
     public string TmpBuildDir = tmpBuildDir ?? $"/tmp/{name}/";
     public bool CleanTmpFiles = cleanBuild;
     public bool PrintTokens = printTokens;
+    public string Backend = backend; // "fasm" or "llvm"
 }

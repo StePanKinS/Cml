@@ -38,6 +38,21 @@ public class Compiler
         if (errorer.Count != 0)
             return errorer;
 
+        Directory.CreateDirectory(Path.GetDirectoryName(project.TmpBuildDir)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(project.Output)!);
+
+        if (project.Backend == "fasm")
+            CompileWithFasm(files, project);
+        else if (project.Backend == "llvm")
+            CompileWithLlvm(files, project);
+        else
+            throw new Exception($"Unknown backend: {project.Backend}");
+
+        return errorer;
+    }
+
+    private static void CompileWithFasm(List<FileDefinition> files, CmlProject project)
+    {
         string asm = new FasmCodeGen(files).Generate();
 
         string asmpath = Path.Combine(project.TmpBuildDir, $"{project.Name}.asm");
@@ -45,9 +60,6 @@ public class Compiler
 
         Directory.CreateDirectory(Path.GetDirectoryName(asmpath)!);
         Directory.CreateDirectory(Path.GetDirectoryName(objpath)!);
-        Directory.CreateDirectory(Path.GetDirectoryName(project.Output)!);
-        // Directory.CreateDirectory(objpath);
-        // Directory.CreateDirectory(project.Output);
 
         StreamWriter sw = new(asmpath);
         sw.Write(asm);
@@ -67,8 +79,39 @@ public class Compiler
             Arguments = $"{objpath} -o {project.Output} -no-pie",
             RedirectStandardOutput = true
         })?.WaitForExit();
+    }
 
-        return errorer;
+    private static void CompileWithLlvm(List<FileDefinition> files, CmlProject project)
+    {
+        string llvmIr = new LlvmCodeGen(files).Generate();
+
+        string llpath = Path.Combine(project.TmpBuildDir, $"{project.Name}.ll");
+        string objpath = Path.ChangeExtension(llpath, "o");
+
+        Directory.CreateDirectory(Path.GetDirectoryName(llpath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(objpath)!);
+
+        StreamWriter sw = new(llpath);
+        sw.Write(llvmIr);
+        sw.Close();
+
+        Process.Start(new ProcessStartInfo()
+        {
+            UseShellExecute = false,
+            FileName = "llc",
+            Arguments = $"-relocation-model=pic -filetype=obj -O3 {llpath} -o {objpath}",
+            // Arguments = $"-filetype=obj -O3 {llpath} -o {objpath}",
+            RedirectStandardOutput = true,
+        })?.WaitForExit();
+
+        Process.Start(new ProcessStartInfo()
+        {
+            UseShellExecute = false,
+            FileName = "gcc",
+            // Arguments = $"{objpath} -o {project.Output} -no-pie",
+            Arguments = $"{objpath} -o {project.Output}",
+            RedirectStandardOutput = true
+        })?.WaitForExit();
     }
 
     private static void printTokens(Dictionary<string, Lexer> lexers)

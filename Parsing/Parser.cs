@@ -1811,11 +1811,14 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         if (indexExpr == null || !ctx.Tokens.Read(out Token? token))
             return null;
 
-        if (indexExpr.ReturnType is not DefaultType.Integer)
+        Executable? promoted = promoteToType(indexExpr, DefaultType.Integer.Long);
+        if (promoted == null)
         {
-            errorer.Append($"Epected integer type for array index, not `{indexExpr.ReturnType.Name}`", indexExpr.Location);
+            errorer.Append($"Epected `long` type for array index, not `{indexExpr.ReturnType.Name}`", indexExpr.Location);
             return null;
         }
+        indexExpr = promoted;
+
         if (lhs.ReturnType is not Pointer
             && lhs.ReturnType is not SizedArray)
         {
