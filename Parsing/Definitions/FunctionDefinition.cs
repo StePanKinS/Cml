@@ -11,6 +11,7 @@ public class FunctionDefinition(
     public Typ ReturnType = null!;
 
     public FunctionArguments Arguments = null!;
+    public bool IsVariadic = false;
 
     public Token[] UnparsedCode = null!;
     public Executable? Code = null;

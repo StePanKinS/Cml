@@ -231,6 +231,8 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
             // External function - just declare it
             string returnType = getLlvmType(fn.ReturnType);
             var paramTypes = string.Join(", ", fn.Arguments.Arguments.Select(arg => getLlvmType(arg.Type)));
+            if (fn.IsVariadic)
+                paramTypes = paramTypes.Length == 0 ? "..." : $"{paramTypes}, ...";
             sb.AppendLine($"declare {returnType} @{fn.Name}({paramTypes})");
             // sb.AppendLine($"@{fn.FullName} = alias {returnType}({paramTypes}), ptr @{fn.Name}");
             sb.AppendLine();
@@ -712,10 +714,18 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         }
         else if (operand.ReturnType is DefaultType.FloatingPoint fromFp && target is DefaultType.FloatingPoint toFp)
         {
-            if (fromFp.Size < toFp.Size)
-                sb.AppendLine($"    {result} = fpext {getLlvmType(fromFp)} {operandVal} to {getLlvmType(toFp)}");
-            else if (fromFp.Size > toFp.Size)
-                sb.AppendLine($"    {result} = fptrunc {getLlvmType(fromFp)} {operandVal} to {getLlvmType(toFp)}");
+            int fromFpSize = fromFp.Size == 0 ? 8 : fromFp.Size;
+            string fromFpType = fromFpSize switch
+            {
+                4 => "float",
+                8 => "double",
+                _ => throw new Exception($"Unknown float size {fromFp.Size}"),
+            };
+
+            if (fromFpSize < toFp.Size)
+                sb.AppendLine($"    {result} = fpext {fromFpType} {operandVal} to {getLlvmType(toFp)}");
+            else if (fromFpSize > toFp.Size)
+                sb.AppendLine($"    {result} = fptrunc {fromFpType} {operandVal} to {getLlvmType(toFp)}");
             else
                 return operandVal;
 

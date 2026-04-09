@@ -2,32 +2,34 @@ using System.Text;
 
 namespace Cml.Types;
 
-public class FunctionPointer(Typ returnType, Typ[] args) : Typ(getName(returnType, args), 8)
+public class FunctionPointer(Typ returnType, Typ[] args, bool isVariadic = false) : Typ(getName(returnType, args, isVariadic), 8)
 {
     public FunctionPointer(FunctionDefinition funcDef)
-        : this(funcDef.ReturnType, funcDef.Arguments.Arguments.Select(a => a.Type).ToArray())
+        : this(funcDef.ReturnType, funcDef.Arguments.Arguments.Select(a => a.Type).ToArray(), funcDef.IsVariadic)
     { }
 
     public Typ ReturnType = returnType;
     public Typ[] Args = args;
+    public bool IsVariadic = isVariadic;
 
-    private static string getName(Typ returnType, Typ[] args)
+    private static string getName(Typ returnType, Typ[] args, bool isVariadic)
     {
         StringBuilder sb = new();
         sb.Append($"fn {returnType.Name}(");
-        for (int i = 0; i < args.Length - 1; i++)
+        for (int i = 0; i < args.Length; i++)
         {
             sb.Append(args[i].Name);
-            sb.Append(',');
+            if (i != args.Length - 1 || isVariadic)
+                sb.Append(", ");
         }
-        if (args.Length > 0)
-            sb.Append(args[^1].Name);
+        if (isVariadic)
+            sb.Append("...");
         sb.Append(')');
         return sb.ToString();
     }
 
     public string GetName()
-        => getName(ReturnType, Args);
+        => getName(ReturnType, Args, IsVariadic);
 
     public override string ToString()
         => $"FunctionPointer({GetName()})";

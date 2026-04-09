@@ -1,0 +1,16 @@
+namespace clib
+{
+    external int printf(char* fmt, ...);
+}
+
+import clib;
+
+export int main()
+{
+    int n = 42;
+    printf("n=%d\n", n);
+    printf("pi=%f\n", 3.14);
+    printf("%s%f\n", "e=", 2.71);
+    printf("done\n");
+    return 0;
+}

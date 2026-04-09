@@ -493,6 +493,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
         Token t = token;
         FunctionArguments args = new(nmsp.NameContext, fd);
+        Location? variadicLocation = null;
 
         while (true)
         {
@@ -506,6 +507,28 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleClose)
             {
                 er.Read(out _);
+                break;
+            }
+
+            if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.Dot)
+            {
+                if (!tryReadVariadicMarker(er, out var variadicLoc))
+                    return null!;
+
+                fd.IsVariadic = true;
+                variadicLocation = variadicLoc;
+
+                if (!er.Read(out token))
+                {
+                    Location loc = new(typeName.TokensLocation(), variadicLoc);
+                    errorer.Append("Expected `)` after `...`. Got file end", loc);
+                    return null!;
+                }
+                if (token.Type != TokenType.Symbol || ((Token<Symbols>)token).Value != Symbols.CircleClose)
+                {
+                    errorer.Append($"Expected `)` after `...`. Got {token}", token.Location);
+                    return null!;
+                }
                 break;
             }
 
@@ -569,7 +592,37 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         fd.UnparsedCode = body;
         fd.Location = location;
 
+        if (fd.IsVariadic && !fd.Modifyers.Contains(Keywords.External))
+            errorer.Append("Variadic functions are supported only for external declarations", variadicLocation ?? location);
+
         return fd;
+    }
+
+    private bool tryReadVariadicMarker(EnumerableReader<Token> er, out Location location)
+    {
+        location = null!;
+        Token? firstDot = null;
+        Token? lastDot = null;
+
+        for (int i = 0; i < 3; i++)
+        {
+            if (!er.Read(out var token))
+            {
+                errorer.Append("Expected `...`", firstDot?.Location ?? Location.Nowhere);
+                return false;
+            }
+            if (token.Type != TokenType.Symbol || ((Token<Symbols>)token).Value != Symbols.Dot)
+            {
+                errorer.Append("Expected `...`", token.Location);
+                return false;
+            }
+
+            firstDot ??= token;
+            lastDot = token;
+        }
+
+        location = new(firstDot!.Location, lastDot!.Location);
+        return true;
     }
 
     private Token[]? readTypeName(EnumerableReader<Token> er)
@@ -1804,6 +1857,28 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             return null;
     }
 
+    private Executable? promoteVariadicArgument(Executable e)
+    {
+        if (e.ReturnType is Pointer || e.ReturnType is EnumType)
+            return e;
+
+        if (e.ReturnType is DefaultType.Integer it)
+        {
+            if (it == DefaultType.Integer.Lit)
+                return new UnaryOperation(UnaryOperationTypes.Cast, e, DefaultType.Integer.Long, e.Location);
+            return e;
+        }
+
+        if (e.ReturnType is DefaultType.FloatingPoint fp)
+        {
+            if (fp == DefaultType.FloatingPoint.Double)
+                return e;
+            return new UnaryOperation(UnaryOperationTypes.Cast, e, DefaultType.FloatingPoint.Double, e.Location);
+        }
+
+        return null;
+    }
+
     private Executable? parseGetElement(Executable lhs, Context ctx)
     {
         ctx.Tokens.Read();
@@ -2252,16 +2327,23 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             if (e == null)
                 return null;
 
-            if (args.Count == funcPtr.Args.Length)
+            if (!funcPtr.IsVariadic && args.Count == funcPtr.Args.Length)
             {
                 errorer.Append($"Too many arguments provided. {funcPtr.Args.Length} expected", lhs.Location);
                 return null;
             }
 
-            Executable? exe = promoteToType(e, funcPtr.Args[args.Count]);
+            Executable? exe;
+            if (args.Count < funcPtr.Args.Length)
+                exe = promoteToType(e, funcPtr.Args[args.Count]);
+            else
+                exe = promoteVariadicArgument(e);
             if (exe == null)
             {
-                errorer.Append($"Type missmatch: {e.ReturnType}, {funcPtr.Args[args.Count]}", e.Location);
+                if (args.Count < funcPtr.Args.Length)
+                    errorer.Append($"Type missmatch: {e.ReturnType}, {funcPtr.Args[args.Count]}", e.Location);
+                else
+                    errorer.Append($"Unsupported variadic argument type: {e.ReturnType}", e.Location);
                 return null;
             }
             args.Add(exe);
@@ -2274,6 +2356,13 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.Comma)
                 ctx.Tokens.Read();
         }
+
+        if (args.Count < funcPtr.Args.Length)
+        {
+            errorer.Append($"Too few arguments provided. {funcPtr.Args.Length} expected", lhs.Location);
+            return null;
+        }
+
         return new FunctionCall(lhs, [.. args], funcPtr.ReturnType, loc);
     }
 
