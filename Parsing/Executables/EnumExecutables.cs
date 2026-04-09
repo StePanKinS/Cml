@@ -22,17 +22,10 @@ public record EnumNameMethod
     Location Location
 ) : Executable(new Pointer(DefaultType.Char), Location);
 
-public record EnumStaticMethodValue
+public record EnumMethodValue
 (
     EnumType EnumType,
-    string MethodName,
-    Location Location
-) : Executable(DefaultType.Void, Location);
-
-public record EnumInstanceMethodValue
-(
-    Executable Operand,
-    EnumType EnumType,
+    Executable? Operand,
     string MethodName,
     Location Location
 ) : Executable(DefaultType.Void, Location);

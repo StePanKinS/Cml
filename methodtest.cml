@@ -1,7 +1,7 @@
 
 namespace clib
 {
-    external int printf(char* fmt, void* ptr, void* ptr2);
+    external int printf(char* fmt, ...);
 }
 import clib;
 
@@ -11,7 +11,7 @@ struct Point {
 
     Point new(int n)
     {
-        return Point { x: n, y: n };
+        return { n, n };
     }
 
     void print(Point* self)
@@ -22,8 +22,10 @@ struct Point {
 
 export int main(int argc, char** argv)
 {
-    Point p = Point { x: 10, y: 5 };
+    Point p = { 10, 5 };
+    Point pn = { x: 3, y: 9 };
     p.print();
+    pn.print();
     Point pp = Point.new(7);
     pp.print();
     return 0;

@@ -293,6 +293,8 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
         Location location = new(kwdToken, t!);
         StructDefinition sd = new(nameToken.Value, members, methods, nmsp, [], location);
+        foreach (var method in sd.Methods)
+            method.Parent = sd;
         nmsp.Append(sd);
     }
 
@@ -1082,7 +1084,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
             if (kwdToken.Value == Keywords.Return)
             {
-                Executable? e = parseExpression(ctx, [Symbols.Semicolon], int.MinValue, true);
+                Executable? e = parseExpression(ctx, [Symbols.Semicolon], int.MinValue, true, ctx.FuncDef.ReturnType);
                 if (e == null)
                 {
                     errorer.Append("Can not parse expression", kwdToken.Location);
@@ -1347,77 +1349,118 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         int minBP,
         bool consumeEndSymbol
     )
+        => parseExpression(ctx, endSymbols, minBP, consumeEndSymbol, null);
+
+    private Executable? parseExpression(
+        Context ctx,
+        IEnumerable<Symbols> endSymbols,
+        int minBP,
+        bool consumeEndSymbol,
+        Typ? expectedType
+    )
     {
-        Token? token, t;
-        if (!ctx.Tokens.Read(out token))
+        if (!ctx.Tokens.Read(out var token))
             return null;
 
-        Executable? lhs;
+        return parseExpression(ctx, endSymbols, minBP, consumeEndSymbol, token, expectedType);
+    }
 
+    private Executable? parseExpression(
+        Context ctx,
+        IEnumerable<Symbols> endSymbols,
+        int minBP,
+        bool consumeEndSymbol,
+        Token token,
+        Typ? expectedType
+    )
+    {
+        Executable? lhs = parseExpressionStart(ctx, token, endSymbols, expectedType);
+        if (lhs == null)
+            return null;
+
+        return continueParseExpression(ctx, endSymbols, minBP, consumeEndSymbol, lhs);
+    }
+
+    private Executable? parseExpressionStart(
+        Context ctx,
+        Token token,
+        IEnumerable<Symbols> endSymbols,
+        Typ? expectedType
+    )
+    {
         if (token.Type == TokenType.Unknown)
         {
             errorer.Append(((Token<string>)token).Value, token.Location);
             return null;
         }
-        else if (tryGetImmidiateValue(token, ctx, out lhs))
-        {
-            if (lhs == null)
-                return null;
-        }
-        else if (token.Type == TokenType.Symbol)
-        {
-            var symbolToken = (Token<Symbols>)token;
-            if (symbolToken.Value == Symbols.Semicolon
-                && endSymbols.Contains(Symbols.Semicolon))
-                return new Nop(symbolToken.Location);
-            else if (symbolToken.Value == Symbols.CircleOpen)
-            {
-                if (!ctx.Tokens.Peek(out t))
-                {
-                    errorer.Append("Unexpected file end", t!.Location);
-                    return null;
-                }
-                if (t.Type == TokenType.Identifier &&
-                    ctx.NameCtx.TryGetType(((Token<string>)t).Value, out var castType))
-                {
-                    ctx.Tokens.Read();
-                    lhs = parseTypeCast(ctx, endSymbols, castType, symbolToken.Location);
-                }
-                else
-                {
-                    lhs = parseExpression(ctx, [Symbols.CircleClose], int.MinValue, false);
-                    if (!ctx.Tokens.Read(out t) || t.Type != TokenType.Symbol || ((Token<Symbols>)t).Value != Symbols.CircleClose)
-                    {
-                        errorer.Append("Closing bracket `)` is not found", new Location(symbolToken, t!));
-                        return null;
-                    }
-                }
-            }
-            else if (PrefixOperations.TryGetValue(symbolToken.Value, out UnaryOperationTypes value))
-            {
-                Executable? rhs = parseExpression(ctx, endSymbols, PrefixOpBP, false);
-                if (rhs == null)
-                    return null;
-                Typ? retType = getPrefixOperationReturnType(value, rhs);
-                if (retType == null)
-                    return null;
-                lhs = new UnaryOperation(value, rhs, retType, new Location(symbolToken.Location, rhs.Location));
-            }
-            else
-            {
-                errorer.Append($"Unexpected symbol {symbolToken}", symbolToken.Location);
-                return null;
-            }
-        }
-        else
+
+        if (tryGetImmidiateValue(token, ctx, out var lhs))
+            return lhs;
+
+        if (token.Type != TokenType.Symbol)
         {
             errorer.Append($"Unexpected token {token}", token.Location);
             return null;
         }
 
-        if (lhs == null)
-            return null;
+        Token? t;
+        var symbolToken = (Token<Symbols>)token;
+        if (symbolToken.Value == Symbols.Semicolon
+            && endSymbols.Contains(Symbols.Semicolon))
+            return new Nop(symbolToken.Location);
 
+        if (symbolToken.Value == Symbols.CircleOpen)
+        {
+            if (!ctx.Tokens.Peek(out t))
+            {
+                errorer.Append("Unexpected file end", t!.Location);
+                return null;
+            }
+            if (t.Type == TokenType.Identifier
+                && ctx.NameCtx.TryGetType(((Token<string>)t).Value, out var castType))
+            {
+                ctx.Tokens.Read();
+                return parseTypeCast(ctx, endSymbols, castType, symbolToken.Location);
+            }
+
+            lhs = parseExpression(ctx, [Symbols.CircleClose], int.MinValue, false);
+            if (lhs == null)
+                return null;
+            if (!ctx.Tokens.Read(out t) || t.Type != TokenType.Symbol || ((Token<Symbols>)t).Value != Symbols.CircleClose)
+            {
+                errorer.Append("Closing bracket `)` is not found", new Location(symbolToken, t!));
+                return null;
+            }
+            return lhs;
+        }
+
+        if (PrefixOperations.TryGetValue(symbolToken.Value, out UnaryOperationTypes value))
+        {
+            Executable? rhs = parseExpression(ctx, endSymbols, PrefixOpBP, false);
+            if (rhs == null)
+                return null;
+            Typ? retType = getPrefixOperationReturnType(value, rhs);
+            if (retType == null)
+                return null;
+            return new UnaryOperation(value, rhs, retType, new Location(symbolToken.Location, rhs.Location));
+        }
+
+        if (symbolToken.Value == Symbols.CurlyOpen && expectedType is StructType st)
+            return parseStructLiteral(st, ctx, symbolToken);
+
+        errorer.Append($"Unexpected symbol {symbolToken}", symbolToken.Location);
+        return null;
+    }
+
+    private Executable? continueParseExpression(
+        Context ctx,
+        IEnumerable<Symbols> endSymbols,
+        int minBP,
+        bool consumeEndSymbol,
+        Executable lhs
+    )
+    {
+        Token? token;
         while (true)
         {
             if (!ctx.Tokens.Peek(out token))
@@ -1529,7 +1572,8 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                     return lhs;
 
                 ctx.Tokens.Read();
-                Executable? rhs = parseExpression(ctx, endSymbols, rightBP, false);
+                Typ? rhsExpectedType = op == BinaryOperationTypes.Assign ? getAssignmentTargetType(lhs) : null;
+                Executable? rhs = parseExpression(ctx, endSymbols, rightBP, false, rhsExpectedType);
                 if (rhs == null)
                     return null;
 
@@ -1549,6 +1593,23 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 return null;
             }
         }
+    }
+
+    private Typ? getAssignmentTargetType(Executable left)
+    {
+        if (left is Identifyer lhsIdent && lhsIdent.Definition is VariableDefinition varDef)
+            return varDef.Type;
+        if (left is GetMember gm)
+            return gm.ReturnType;
+        if (left is GetElement ge)
+        {
+            if (ge.Operand.ReturnType is SizedArray sa)
+                return sa.ElementType;
+            if (ge.Operand.ReturnType is Pointer p)
+                return p.PointsTo;
+            throw new Exception($"Indexing {ge.Operand}. In getAssignmentTargetType");
+        }
+        return null;
     }
 
     private Typ? verifyIncrement(Executable operand, bool isDecrement)
@@ -1956,7 +2017,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             {
                 if (nameToken.Value == "of")
                 {
-                    return new EnumStaticMethodValue(et, nameToken.Value, location); // for now just special TypeValue
+                    return new EnumMethodValue(et, null, nameToken.Value, location);
                 }
 
                 var (Name, Value) = et.Members.FirstOrDefault(m => m.Name == nameToken.Value);
@@ -1996,7 +2057,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             {
                 if (nameToken.Value == "name")
                 {
-                    return new EnumInstanceMethodValue(lhs, et, nameToken.Value, location);
+                    return new EnumMethodValue(et, lhs, nameToken.Value, location);
                 }
             }
 
@@ -2007,11 +2068,10 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 {
                     var ptrMethod = ptrStructType.GetMethod(nameToken.Value);
                     if (ptrMethod != null)
-                    {
-                        errorer.Append($"Member or method with name {nameToken.Value} doesnt exist in type {ptrStructType.Name}", nameToken.Location);
-                        return null;
-                    }
-                    return new MethodValue(lhs, ptrMethod!, location);
+                        return new MethodValue(lhs, ptrMethod, location);
+
+                    errorer.Append($"Member or method with name {nameToken.Value} doesnt exist in type {ptrStructType.Name}", nameToken.Location);
+                    return null;
                 }
                 // auto deref™
                 Executable dereferenced = new UnaryOperation(UnaryOperationTypes.Dereference, lhs, ptrStructType, new Location(lhs.Location, nameToken.Location));
@@ -2041,13 +2101,16 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         return new GetMember(lhs, nameToken, retType, new Location(lhs.Location, nameToken.Location));
     }
 
-    private Executable? parseStructLiteral(StructType st, Context ctx)
+    private Executable? parseStructLiteral(StructType st, Context ctx, Token? openBrace = null)
     {
-        Token? openBrace;
-        ctx.Tokens.Read(out openBrace); // consume {
+        if (openBrace == null)
+            ctx.Tokens.Read(out openBrace);
+
         Token? token;
-        List<Executable> fieldValues = [];
+        Executable?[] fieldValues = new Executable?[st.Members.Length];
         Dictionary<string, int> fieldIndices = [];
+        bool? usesNamedFields = null;
+        int positionalIndex = 0;
         for (int i = 0; i < st.Members.Length; i++)
         {
             fieldIndices[st.Members[i].Name] = i;
@@ -2066,42 +2129,103 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 break;
             }
 
-            if (token.Type != TokenType.Identifier)
+            int fieldIndex;
+            Executable? fieldValue;
+            if (token.Type == TokenType.Identifier)
             {
-                errorer.Append($"Expected field name, not {token}", token.Location);
-                return null;
-            }
-            var fieldName = (Token<string>)token;
-            ctx.Tokens.Read();
+                ctx.Tokens.Read(out token);
+                var firstToken = token!;
+                var fieldName = (Token<string>)firstToken;
 
-            if (!ctx.Tokens.Read(out token) || token.Type != TokenType.Symbol || ((Token<Symbols>)token).Value != Symbols.Colon)
+                if (ctx.Tokens.Peek(out token)
+                    && token.Type == TokenType.Symbol
+                    && ((Token<Symbols>)token).Value == Symbols.Colon)
+                {
+                    if (usesNamedFields == false)
+                    {
+                        errorer.Append("Can not mix named and positional fields in struct literal", fieldName.Location);
+                        return null;
+                    }
+                    usesNamedFields = true;
+                    ctx.Tokens.Read();
+
+                    if (!fieldIndices.TryGetValue(fieldName.Value, out fieldIndex))
+                    {
+                        errorer.Append($"Struct `{st.Name}` does not have field `{fieldName.Value}`", fieldName.Location);
+                        return null;
+                    }
+
+                    fieldValue = parseExpression(ctx, [Symbols.CurlyClose, Symbols.Comma], 0, false, st.Members[fieldIndex].Type);
+                    if (fieldValue == null)
+                    {
+                        errorer.Append($"Failed to parse field value for `{fieldName.Value}`", fieldName.Location);
+                        return null;
+                    }
+                }
+                else
+                {
+                    if (usesNamedFields == true)
+                    {
+                        errorer.Append("Can not mix named and positional fields in struct literal", firstToken.Location);
+                        return null;
+                    }
+                    usesNamedFields = false;
+
+                    if (positionalIndex >= st.Members.Length)
+                    {
+                        errorer.Append($"Too many fields provided for struct `{st.Name}`", firstToken.Location);
+                        return null;
+                    }
+
+                    fieldIndex = positionalIndex++;
+                    fieldValue = parseExpression(ctx, [Symbols.CurlyClose, Symbols.Comma], 0, false, firstToken, st.Members[fieldIndex].Type);
+                    if (fieldValue == null)
+                    {
+                        errorer.Append($"Failed to parse positional field `{st.Members[fieldIndex].Name}`", firstToken.Location);
+                        return null;
+                    }
+                }
+            }
+            else
             {
-                errorer.Append($"Expected `:` after field name, not {token}", token!.Location);
-                return null;
+                if (usesNamedFields == true)
+                {
+                    errorer.Append("Can not mix named and positional fields in struct literal", token.Location);
+                    return null;
+                }
+                usesNamedFields = false;
+
+                if (positionalIndex >= st.Members.Length)
+                {
+                    errorer.Append($"Too many fields provided for struct `{st.Name}`", token.Location);
+                    return null;
+                }
+
+                fieldIndex = positionalIndex++;
+                fieldValue = parseExpression(ctx, [Symbols.CurlyClose, Symbols.Comma], 0, false, st.Members[fieldIndex].Type);
+                if (fieldValue == null)
+                {
+                    errorer.Append($"Failed to parse positional field `{st.Members[fieldIndex].Name}`", token.Location);
+                    return null;
+                }
             }
 
-            Executable? fieldValue = parseExpression(ctx, [Symbols.CurlyClose, Symbols.Comma], 0, false);
-            if (fieldValue == null)
+            Typ memberType = st.Members[fieldIndex].Type;
+            if (fieldValue.ReturnType != memberType)
             {
-                errorer.Append($"Failed to parse field value for `{fieldName.Value}`", fieldName.Location);
-                return null;
+                var promoted = promoteToType(fieldValue, memberType);
+                if (promoted == null)
+                {
+                    errorer.Append($"Type missmatch: expected {memberType}, got {fieldValue.ReturnType}", fieldValue.Location);
+                    return null;
+                }
+                fieldValue = promoted;
             }
 
-            if (!fieldIndices.TryGetValue(fieldName.Value, out int fieldIndex))
+            if (fieldValues[fieldIndex] != null)
             {
-                errorer.Append($"Struct `{st.Name}` does not have field `{fieldName.Value}`", fieldName.Location);
+                errorer.Append($"Field `{st.Members[fieldIndex].Name}` already set in struct literal", fieldValue.Location);
                 return null;
-            }
-
-            if (fieldValues.Count > fieldIndex && fieldValues[fieldIndex] != null)
-            {
-                errorer.Append($"Field `{fieldName.Value}` already set in struct literal", fieldName.Location);
-                return null;
-            }
-
-            while (fieldValues.Count <= fieldIndex)
-            {
-                fieldValues.Add(null!);
             }
             fieldValues[fieldIndex] = fieldValue;
 
@@ -2116,54 +2240,45 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 continue;
             }
             if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CurlyClose)
-            {
                 continue;
-            }
+
             errorer.Append($"Expected `,` or `}}` in struct literal, not {token}", token.Location);
             return null;
         }
 
-        // Fill in missing fields with default values
         for (int i = 0; i < st.Members.Length; i++)
         {
-            if (fieldValues.Count <= i || fieldValues[i] == null)
+            if (fieldValues[i] != null)
+                continue;
+
+            var memberType = st.Members[i].Type;
+            if (memberType is DefaultType.Integer)
+                fieldValues[i] = new Literal<ulong>(0, memberType, openBrace!.Location);
+            else if (memberType is DefaultType.FloatingPoint)
+                fieldValues[i] = new Literal<double>(0.0, memberType, openBrace!.Location);
+            else if (memberType is Pointer)
+                fieldValues[i] = new Literal<ulong>(0, memberType, openBrace!.Location);
+            else if (memberType == DefaultType.Bool)
+                fieldValues[i] = new Literal<bool>(false, memberType, openBrace!.Location);
+            else if (memberType is EnumType)
+                fieldValues[i] = new Literal<ulong>(0, memberType, openBrace!.Location);
+            else
             {
-                // default type go brr...
-                var memberType = st.Members[i].Type;
-                if (memberType is DefaultType.Integer)
-                {
-                    fieldValues[i] = new Literal<ulong>(0, memberType, openBrace!.Location);
-                }
-                else if (memberType is DefaultType.FloatingPoint)
-                {
-                    fieldValues[i] = new Literal<double>(0.0, memberType, openBrace!.Location);
-                }
-                else if (memberType is Pointer)
-                {
-                    fieldValues[i] = new Literal<ulong>(0, memberType, openBrace!.Location);
-                }
-                else if (memberType == DefaultType.Bool)
-                {
-                    fieldValues[i] = new Literal<bool>(false, memberType, openBrace!.Location);
-                }
-                else
-                {
-                    errorer.Append($"Field `{st.Members[i].Name}` must be initialized in struct literal (no default for type {memberType.Name})", openBrace!.Location);
-                    return null;
-                }
+                errorer.Append($"Field `{st.Members[i].Name}` must be initialized in struct literal (no default for type {memberType.Name})", openBrace!.Location);
+                return null;
             }
         }
 
-        return new StructLiteral(st, [.. fieldValues], new Location(openBrace!.Location, token!.Location));
+        return new StructLiteral(st, fieldValues.Select(f => f!).ToArray(), new Location(openBrace!.Location, token!.Location));
     }
 
     private Executable? parseFuncCall(Executable lhs, Context ctx)
     {
         ctx.Tokens.Read();
 
-        if (lhs is EnumStaticMethodValue esm)
+        if (lhs is EnumMethodValue emv)
         {
-            if (esm.MethodName == "of")
+            if (emv.MethodName == "of")
             {
                 List<Executable> enumArgs = [];
                 while (true)
@@ -2187,7 +2302,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
                 if (enumArgs.Count != 1)
                 {
-                    errorer.Append("Enum.of expects exactly 1 argument", esm.Location);
+                    errorer.Append("Enum.of expects exactly 1 argument", emv.Location);
                     return null;
                 }
                 if (enumArgs[0].ReturnType is not Pointer p || p.PointsTo != DefaultType.Char)
@@ -2195,13 +2310,9 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                     errorer.Append("Enum.of expects char* argument", enumArgs[0].Location);
                 }
 
-                return new EnumOfMethod(esm.EnumType, enumArgs[0], esm.Location);
+                return new EnumOfMethod(emv.EnumType, enumArgs[0], emv.Location);
             }
-        }
-
-        if (lhs is EnumInstanceMethodValue eim)
-        {
-            if (eim.MethodName == "name")
+            else if (emv.MethodName == "name")
             {
                 while (true)
                 {
@@ -2222,7 +2333,13 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                         ctx.Tokens.Read();
                 }
 
-                return new EnumNameMethod(eim.EnumType, eim.Operand, eim.Location);
+                if (emv.Operand == null)
+                {
+                    errorer.Append("Enum.name expects an enum value receiver", emv.Location);
+                    return null;
+                }
+
+                return new EnumNameMethod(emv.EnumType, emv.Operand, emv.Location);
             }
         }
 

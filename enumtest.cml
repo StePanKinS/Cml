@@ -1,7 +1,7 @@
 
 namespace clib
 {
-    external int printf(char* fmt, void* ptr);
+    external int printf(char* fmt, ...);
 }
 import clib;
 

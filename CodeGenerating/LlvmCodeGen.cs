@@ -7,6 +7,7 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
     private IEnumerable<FileDefinition> Files = files;
     private List<string> stringLiterals = [];
     private List<double> doubleLiterals = [];
+    private bool needsStrcmp = false;
     private int ifsCounter = 0;
     private int loopsCounter = 0;
     private int valueCounter = 0;
@@ -91,7 +92,7 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         else if (type is StructType st)
             return $"%struct.{st.Name}";
         else if (type is EnumType enumType)
-            return "i64"; // Enums are 64-bit integers
+            return getLlvmType(enumType.UnderlyingType);
         else
             throw new Exception($"Unknown type {type}");
     }
@@ -112,6 +113,12 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
 
         foreach (var file in Files)
             generateNamespace(file, sb);
+
+        if (needsStrcmp)
+        {
+            sb.AppendLine("declare i32 @strcmp(i8*, i8*)");
+            sb.AppendLine();
+        }
 
         generateStringGlobals(sb);
         sb.AppendLine();
@@ -215,7 +222,12 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
                     break;
 
                 case DefaultTypeDefinition:
-                case StructDefinition: // Struct definitions are generated earlier
+                case EnumDefinition:
+                    break;
+
+                case StructDefinition sd:
+                    foreach (var method in sd.Methods)
+                        generateFunction(method, sb);
                     break;
 
                 default:
@@ -687,6 +699,20 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
             return array;
         }
 
+        if (source is EnumType fromEnum && target == fromEnum.UnderlyingType)
+        {
+            string enumVal = generateExecutable(operand, locals, sb);
+            sb.AppendLine($"        ; Cast {operand.ReturnType} to {target} {uo.Location}");
+            return enumVal;
+        }
+
+        if (target is EnumType toEnum && source == toEnum.UnderlyingType)
+        {
+            string underlyingVal = generateExecutable(operand, locals, sb);
+            sb.AppendLine($"        ; Cast {operand.ReturnType} to {target} {uo.Location}");
+            return underlyingVal;
+        }
+
         string operandVal = generateExecutable(operand, locals, sb);
         sb.AppendLine($"        ; Cast {operand.ReturnType} to {target} {uo.Location}");
 
@@ -799,13 +825,16 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
     private string generateMethodCall(MethodCall mc, INameContainer locals, StringBuilder sb)
     {
         sb.AppendLine($"        ; Method call {mc.Location}");
-        throw new NotImplementedException("Method calls");
+        FunctionCall fc = new(new Identifyer(mc.Method, new FunctionPointer(mc.Method), mc.Location), mc.Args, mc.ReturnType, mc.Location);
+        return generateFunctionCall(fc, locals, sb);
     }
 
     private string generateMethodValue(MethodValue mv, INameContainer locals, StringBuilder sb)
     {
         sb.AppendLine($"        ; Method value {mv.Location}");
-        throw new NotImplementedException("Method value");
+        if (mv.Method.Modifyers.Contains(Keywords.External))
+            return $"@{mv.Method.Name}";
+        return $"@{mv.Method.FullName}";
     }
 
     private string generateIdentifier(Identifyer id, INameContainer locals, StringBuilder sb)
@@ -888,32 +917,47 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
     {
         sb.AppendLine($"    ; Struct literal {sl.StructType.Name}");
 
-        string result = getNextValueName();
-        sb.AppendLine($"    {result} = alloca {getLlvmType(sl.StructType)}");
+        string structType = getLlvmType(sl.StructType);
+        if (sl.FieldValues.Length == 0)
+            return "zeroinitializer";
 
-        for (int i = 0; i < sl.FieldValues.Length; i++)
+        string firstValue = generateExecutable(sl.FieldValues[0], locals, sb);
+        string current = getNextValueName();
+        sb.AppendLine($"    {current} = insertvalue {structType} undef, {getLlvmType(sl.StructType.Members[0].Type)} {firstValue}, 0");
+
+        for (int i = 1; i < sl.FieldValues.Length; i++)
         {
             string fieldVal = generateExecutable(sl.FieldValues[i], locals, sb);
-            var fieldType = sl.StructType.Members[i].Type;
-            string fieldPtr = getNextValueName();
-            sb.AppendLine($"    {fieldPtr} = getelementptr {getLlvmType(sl.StructType)}, {getLlvmType(sl.StructType)}* {result}, i32 0, i32 {i}");
-            sb.AppendLine($"    store {getLlvmType(fieldType)} {fieldVal}, {getLlvmType(fieldType)}* {fieldPtr}");
+            string next = getNextValueName();
+            sb.AppendLine($"    {next} = insertvalue {structType} {current}, {getLlvmType(sl.StructType.Members[i].Type)} {fieldVal}, {i}");
+            current = next;
         }
 
-        return result;
+        return current;
     }
 
     private string generateEnumOf(EnumOfMethod eom, INameContainer locals, StringBuilder sb)
     {
+        needsStrcmp = true;
         string namePtr = generateExecutable(eom.NameArgument, locals, sb);
         sb.AppendLine($"    ; Enum.of {eom.EnumType.Name}");
 
+        string enumType = getLlvmType(eom.EnumType);
         int endLabel = ifsCounter++;
         string result = getNextValueName();
-        sb.AppendLine($"    {result} = alloca i64");
+        sb.AppendLine($"    {result} = alloca {enumType}");
+        sb.AppendLine($"    store {enumType} 0, ptr {result}");
+        if (eom.EnumType.Members.Length != 0)
+            sb.AppendLine($"    br label %enum_of_check_{endLabel}_0");
 
-        foreach (var member in eom.EnumType.Members)
+        for (int i = 0; i < eom.EnumType.Members.Length; i++)
         {
+            var member = eom.EnumType.Members[i];
+            string checkLabel = $"enum_of_check_{endLabel}_{i}";
+            string matchLabel = $"enum_of_match_{endLabel}_{i}";
+            string nextLabel = i == eom.EnumType.Members.Length - 1 ? $"enum_of_end_{endLabel}" : $"enum_of_check_{endLabel}_{i + 1}";
+            sb.AppendLine($"{checkLabel}:");
+
             string memberNamePtr = getNextValueName();
             int strIdx = stringLiterals.Count;
             stringLiterals.Add(member.Name);
@@ -921,16 +965,17 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
 
             string cmpResult = getNextValueName();
             sb.AppendLine($"    {cmpResult} = call i32 @strcmp(i8* {namePtr}, i8* {memberNamePtr})");
-            sb.AppendLine($"    br i1 %cond, label %enum_of_match_{endLabel}, label %enum_of_next_{endLabel}");
-            sb.AppendLine($"enum_of_match_{endLabel}:");
-            sb.AppendLine($"    store i64 {member.Value}, i64* {result}");
+            string isMatch = getNextValueName();
+            sb.AppendLine($"    {isMatch} = icmp eq i32 {cmpResult}, 0");
+            sb.AppendLine($"    br i1 {isMatch}, label %{matchLabel}, label %{nextLabel}");
+            sb.AppendLine($"{matchLabel}:");
+            sb.AppendLine($"    store {enumType} {member.Value}, ptr {result}");
             sb.AppendLine($"    br label %enum_of_end_{endLabel}");
-            sb.AppendLine($"enum_of_next_{endLabel}:");
         }
 
         sb.AppendLine($"enum_of_end_{endLabel}:");
         string loadResult = getNextValueName();
-        sb.AppendLine($"    {loadResult} = load i64, i64* {result}");
+        sb.AppendLine($"    {loadResult} = load {enumType}, ptr {result}");
         return loadResult;
     }
 
@@ -939,21 +984,30 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         string enumVal = generateExecutable(enm.EnumValue, locals, sb);
         sb.AppendLine($"    ; Enum.name {enm.EnumType.Name}");
 
+        string enumType = getLlvmType(enm.EnumType);
         int endLabel = ifsCounter++;
         string result = getNextValueName();
         sb.AppendLine($"    {result} = alloca i8*");
+        sb.AppendLine($"    store i8* null, ptr {result}");
+        if (enm.EnumType.Members.Length != 0)
+            sb.AppendLine($"    br label %enum_name_check_{endLabel}_0");
 
-        foreach (var member in enm.EnumType.Members)
+        for (int i = 0; i < enm.EnumType.Members.Length; i++)
         {
+            var member = enm.EnumType.Members[i];
+            string checkLabel = $"enum_name_check_{endLabel}_{i}";
+            string matchLabel = $"enum_name_match_{endLabel}_{i}";
+            string nextLabel = i == enm.EnumType.Members.Length - 1 ? $"enum_name_end_{endLabel}" : $"enum_name_check_{endLabel}_{i + 1}";
+            sb.AppendLine($"{checkLabel}:");
+
             int strIdx = stringLiterals.Count;
             stringLiterals.Add(member.Name);
             string cmpResult = getNextValueName();
-            sb.AppendLine($"    {cmpResult} = icmp eq i64 {enumVal}, {member.Value}");
-            sb.AppendLine($"    br i1 {cmpResult}, label %enum_name_match_{endLabel}, label %enum_name_next_{endLabel}");
-            sb.AppendLine($"enum_name_match_{endLabel}:");
-            sb.AppendLine($"    store i8* getelementptr inbounds ([{member.Name.Length + 1} x i8], [{member.Name.Length + 1} x i8]* @str{strIdx}, i32 0, i32 0), i8** {result}");
+            sb.AppendLine($"    {cmpResult} = icmp eq {enumType} {enumVal}, {member.Value}");
+            sb.AppendLine($"    br i1 {cmpResult}, label %{matchLabel}, label %{nextLabel}");
+            sb.AppendLine($"{matchLabel}:");
+            sb.AppendLine($"    store i8* getelementptr inbounds ([{member.Name.Length + 1} x i8], [{member.Name.Length + 1} x i8]* @str{strIdx}, i32 0, i32 0), ptr {result}");
             sb.AppendLine($"    br label %enum_name_end_{endLabel}");
-            sb.AppendLine($"enum_name_next_{endLabel}:");
         }
 
         sb.AppendLine($"enum_name_end_{endLabel}:");
