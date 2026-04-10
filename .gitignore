@@ -8,3 +8,6 @@ Cml.csproj.user
 cmltest
 a.out
 cml.patch
+
+test.cml
+test2.cml

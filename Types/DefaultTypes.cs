@@ -3,7 +3,7 @@ namespace Cml.Types;
 public class DefaultType : Typ
 {
     public static DefaultType Void { get; } = new("void", 0);
-    public static DefaultType Char { get; } = new("char", 1);
+    // public static DefaultType Char { get; } = new("char", 1);
     public static DefaultType Bool { get; } = new("bool", 8);
 
     protected DefaultType(string name, int size)

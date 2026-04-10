@@ -80,8 +80,8 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
             };
         else if (type == DefaultType.Bool)
             return "i1";
-        else if (type == DefaultType.Char)
-            return "i8";
+        // else if (type == DefaultType.Char)
+        //     return "i8";
         else if (type == DefaultType.Void)
             return "void";
         else if (type is Pointer ptr)

@@ -20,7 +20,7 @@ public record EnumNameMethod
     EnumType EnumType,
     Executable EnumValue,
     Location Location
-) : Executable(new Pointer(DefaultType.Char), Location);
+) : Executable(new Pointer(DefaultType.Integer.Byte), Location);
 
 public record EnumMethodValue
 (

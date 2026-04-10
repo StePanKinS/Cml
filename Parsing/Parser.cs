@@ -2305,9 +2305,9 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                     errorer.Append("Enum.of expects exactly 1 argument", emv.Location);
                     return null;
                 }
-                if (enumArgs[0].ReturnType is not Pointer p || p.PointsTo != DefaultType.Char)
+                if (enumArgs[0].ReturnType is not Pointer p || p.PointsTo != DefaultType.Integer.Byte)
                 {
-                    errorer.Append("Enum.of expects char* argument", enumArgs[0].Location);
+                    errorer.Append("Enum.of expects byte* argument", enumArgs[0].Location);
                 }
 
                 return new EnumOfMethod(emv.EnumType, enumArgs[0], emv.Location);
@@ -2624,10 +2624,10 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
     private Executable getLiteralExecutable(Token token)
     {
         if (token is Token<char> charToken)
-            return new Literal<char>(charToken.Value, DefaultType.Char, token.Location);
+            return new Literal<char>(charToken.Value, DefaultType.Integer.Byte, token.Location);
 
         else if (token is Token<string> stringToken)
-            return new Literal<string>(stringToken.Value, new Pointer(DefaultType.Char), token.Location);
+            return new Literal<string>(stringToken.Value, new Pointer(DefaultType.Integer.Byte), token.Location);
 
         else if (token is Token<ulong> intToken)
             return new Literal<ulong>(intToken.Value, DefaultType.Integer.Lit, token.Location);

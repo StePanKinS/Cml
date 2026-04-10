@@ -1,6 +1,6 @@
 import clib;
 
-export int main(int argc, char** argv)
+export int main(int argc, byte** argv)
 {
     int mind = 2147483647;
     int lastMaxPos = -1;
@@ -60,9 +60,9 @@ export int main(int argc, char** argv)
 int readInt()
 {
     FILE* stdin = fdopen(0, "r");
-    char[256] buffer;
+    byte[256] buffer;
 
-    char* str = fgets((char*)buffer, 256, stdin);
+    byte* str = fgets((byte*)buffer, 256, stdin);
     int n = atoi(str);
 
     return n;

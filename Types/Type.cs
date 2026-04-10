@@ -13,7 +13,7 @@ public abstract class Typ(string name, int size)
     {
         var types = (IEnumerable<Typ>)[
             DefaultType.Void,
-            DefaultType.Char,
+            // DefaultType.Char,
             DefaultType.Bool,
             DefaultType.Integer.SByte,
             DefaultType.Integer.Short,
