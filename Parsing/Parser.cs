@@ -16,6 +16,8 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
     private List<FileDefinition> Files = files;
     private ErrorReporter errorer = errorer;
 
+    private List<(NamespaceDefinition ns, Token[] ownerPath, FunctionDefinition fn)> pendingMethods = [];
+
     public void ParseDefinitions(string path, string fileName)
         => ParseDefinitions(new Lexer(path, fileName), fileName);
 
@@ -445,7 +447,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             nmspDef.Location = loc;
         }
     }
-
+    
     private void readFunction(EnumerableReader<Token> er, NamespaceDefinition nmsp, Keywords[] modifyers)
     {
         // TODO: start location is in keywords
@@ -465,9 +467,49 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         }
 
         var funcName = (Token<string>)token;
-        FunctionDefinition fd = readFunctionDefinition(er, nmsp, modifyers, typeName, funcName);
+        
+        Token[]? ownerPath = null;
+        Token<string>? methodName = null;
+        if (er.Peek(out var nextToken) && nextToken.Type == TokenType.Symbol && ((Token<Symbols>)nextToken).Value == Symbols.Dot)
+        {
+            ownerPath = [funcName];
+            er.Read();
+            
+            while (true)
+            {
+                if (!er.Read(out token) || token.Type != TokenType.Identifier)
+                {
+                    errorer.Append("Expected identifier after `.`", token?.Location ?? funcName.Location);
+                    return;
+                }
+                
+                var identToken = (Token<string>)token;
+                
+                if (er.Peek(out nextToken) && nextToken.Type == TokenType.Symbol && ((Token<Symbols>)nextToken).Value == Symbols.Dot)
+                {
+                    ownerPath = [.. ownerPath, identToken];
+                    er.Read();
+                    continue;
+                }
+                
+                methodName = identToken;
+                break;
+            }
+        }
+        
+        FunctionDefinition fd = readFunctionDefinition(er, nmsp, modifyers, typeName, methodName ?? funcName);
         if (fd != null)
-            nmsp.Append(fd);
+        {
+            if (ownerPath != null)
+            {
+                Token[] fullOwnerPath = [.. ownerPath, methodName!];
+                pendingMethods.Add((nmsp, fullOwnerPath, fd));
+            }
+            else
+            {
+                nmsp.Append(fd);
+            }
+        }
     }
 
     private FunctionDefinition readFunctionDefinition(EnumerableReader<Token> er, NamespaceDefinition nmsp, Keywords[] modifyers, Token[] typeName, Token<string> funcName)
@@ -809,11 +851,101 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
     public void ParseCode()
     {
         setReferences(Files);
+        
+        normalizePendingMethods();
 
         if (errorer.Count != 0)
             return;
 
         parseCode(Files);
+    }
+
+    private void normalizePendingMethods()
+    {
+        foreach (var (ns, ownerPath, fn) in pendingMethods)
+        {
+            Token[] structPath = ownerPath[..^1];
+            Token<string> methodName = (Token<string>)ownerPath[^1];
+
+            StructDefinition? structD = null;
+            
+            if (structPath.Length == 1)
+            {
+                Definition current = ns;
+                while (current.Parent != null)
+                    current = current.Parent;
+                
+                if (current is FileDefinition file)
+                {
+                    var fileCtx = (FileContext)file.NameContext;
+                    var token = (Token<string>)structPath[0];
+                    if (fileCtx.TryGetName(token.Value, out var def) && def is StructDefinition sd)
+                    {
+                        structD = sd;
+                    }
+                }
+            }
+            else
+            {
+                Definition current = ns;
+                while (current.Parent != null)
+                    current = current.Parent;
+                
+                INameContainer searchCtx;
+                if (current is FileDefinition file)
+                    searchCtx = file.NameContext;
+                else if (current is NamespaceDefinition nmsp)
+                    searchCtx = nmsp.NameContext;
+                else
+                    searchCtx = (INameContainer)ns;
+                
+                foreach (var name in structPath[..^1])
+                {
+                    var ident = (Token<string>)name;
+                    if (!searchCtx.TryGetName(ident.Value, out var def))
+                    {
+                        errorer.Append($"Cannot find `{ident.Value}`", ident.Location);
+                        break;
+                    }
+                    if (def is not NamespaceDefinition nmspDef)
+                    {
+                        errorer.Append($"`{ident.Value}` is not a namespace", ident.Location);
+                        break;
+                    }
+                    searchCtx = nmspDef.NameContext;
+                }
+                
+                var lastStructToken = (Token<string>)structPath[^1];
+                if (searchCtx.TryGetName(lastStructToken.Value, out var structDef) && structDef is StructDefinition sd)
+                {
+                    structD = sd;
+                }
+            }
+            
+            if (structD == null)
+            {
+                var lastStructToken = structPath.Length > 0 ? (Token<string>)structPath[^1] : methodName;
+                errorer.Append($"Cannot find struct `{lastStructToken.Value}`", lastStructToken.Location);
+                continue;
+            }
+            
+            fn.Parent = structD;
+            structD.Methods.Add(fn);
+            
+            INameContainer nameCtx = structD.Parent is NamespaceDefinition parentNs ? parentNs.NameContext : (INameContainer)structD.Parent;
+            
+            var newArgs = new FunctionArguments(nameCtx, fn);
+            foreach (var arg in fn.Arguments.Arguments)
+            {
+                newArgs.Arguments.Add(arg);
+            }
+            fn.Arguments = newArgs;
+            
+            setFunctionReferences(fn);
+            
+            structD.StructType.Methods = structD.Methods.ToArray();
+        }
+        pendingMethods.Clear();
     }
 
 

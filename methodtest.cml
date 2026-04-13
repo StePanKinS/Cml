@@ -5,6 +5,7 @@ namespace clib
 }
 import clib;
 
+namespace bruv{
 struct Point {
     int x,
     int y
@@ -13,11 +14,13 @@ struct Point {
     {
         return { n, n };
     }
+}
+}
 
-    void print(Point* self)
-    {
-        printf("Point(%d, %d)\n", (void*)(ulong)(long)self.x, (void*)(ulong)(long)self.y);
-    }
+import bruv;
+void Point.print(Point* self)
+{
+    printf("Point(%d, %d)\n", (void*)(ulong)(long)self.x, (void*)(ulong)(long)self.y);
 }
 
 export int main(int argc, char** argv)
