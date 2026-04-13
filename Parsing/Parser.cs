@@ -6,7 +6,7 @@ namespace Cml.Parsing;
 public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 {
     public const Symbols StructMemberSeparator = Symbols.Comma;
-    private static readonly IEnumerable<Keywords> Modifyers = [Keywords.External, Keywords.Export];
+    private static readonly IEnumerable<Keywords> Modifyers = [Keywords.External, Keywords.Internal];
     private static readonly Dictionary<Symbols, Symbols> BracketPairs = new()
     {
         { Symbols.CurlyClose , Symbols.CurlyOpen  },
@@ -69,20 +69,14 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                     }
                     if (kwdToken.Value == Keywords.Struct)
                     {
-                        if (modifyers.Count != 0)
-                            errorer.Append("Modifyers are not applicable to structs", new Location(modifyers[0], modifyers[^1]));
-
+                        readStruct(er, nmsp, [.. from m in modifyers select m.Value]);
                         modifyers.Clear();
-                        readStruct(er, nmsp);
                         continue;
                     }
                     if (kwdToken.Value == Keywords.Enum)
                     {
-                        if (modifyers.Count != 0)
-                            errorer.Append("Modifyers are not applicable to enums", new Location(modifyers[0], modifyers[^1]));
-
+                        readEnum(er, nmsp, [.. from m in modifyers select m.Value]);
                         modifyers.Clear();
-                        readEnum(er, nmsp);
                         continue;
                     }
                     if (kwdToken.Value == Keywords.Namespace)
@@ -175,7 +169,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         nmsp.Append(def);
     }
 
-    private void readStruct(EnumerableReader<Token> er, NamespaceDefinition nmsp)
+    private void readStruct(EnumerableReader<Token> er, NamespaceDefinition nmsp, Keywords[] modifyers)
     {
         Token? token, t;
         er.Read(out token);
@@ -294,13 +288,13 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         }
 
         Location location = new(kwdToken, t!);
-        StructDefinition sd = new(nameToken.Value, members, methods, nmsp, [], location);
+        StructDefinition sd = new(nameToken.Value, members, methods, nmsp, modifyers, location);
         foreach (var method in sd.Methods)
             method.Parent = sd;
         nmsp.Append(sd);
     }
 
-    private void readEnum(EnumerableReader<Token> er, NamespaceDefinition nmsp)
+    private void readEnum(EnumerableReader<Token> er, NamespaceDefinition nmsp, Keywords[] modifyers)
     {
         Token? token;
         er.Read(out token);
@@ -393,7 +387,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             }
         }
 
-        EnumDefinition enumDef = new(nameToken.Value, underlyingType, members.ToArray(), nmsp, [], new Location(kwdToken.Location, token?.Location ?? nameToken.Location));
+        EnumDefinition enumDef = new(nameToken.Value, underlyingType, members.ToArray(), nmsp, modifyers, new Location(kwdToken.Location, token?.Location ?? nameToken.Location));
         nmsp.Append(enumDef);
     }
 
@@ -416,7 +410,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
             if (!er.Read(out token) || token.Type != TokenType.Symbol)
             {
-                errorer.Append("Expected `.` or `{`", token!.Location);
+                errorer.Append("Expected `.`, `{` or `;`", token!.Location);
                 return;
             }
             var st = (Token<Symbols>)token;
@@ -424,6 +418,25 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 break;
             else if (st.Value == Symbols.Dot)
                 continue;
+            else if (st.Value == Symbols.Semicolon)
+            {
+                NamespaceDefinition nsParent = nmsp;
+                var nsDefs = new NamespaceDefinition[names.Count];
+                for (int i = 0; i < names.Count; i++)
+                {
+                    nsDefs[i] = new NamespaceDefinition(names[i].Value, nsParent, [], Location.Nowhere);
+                    nsParent.Append(nsDefs[i]);
+                    nsParent = nsDefs[i];
+                }
+
+                nmsp.Append(nsDefs[0]);
+                Location nsLoc = new(kwdToken.Location, st.Location);
+                foreach (var nsDef in nsDefs)
+                {
+                    nsDef.Location = nsLoc;
+                }
+                return;
+            }
 
             errorer.Append($"Unexpected symbol `{st.Value}`", st.Location);
             return;
@@ -1236,17 +1249,65 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 returnType = e.ReturnType;
                 return new Return(e, new Location(kwdToken.Location, e.Location));
             }
-            else if (kwdToken.Value == Keywords.While)
+            else if (kwdToken.Value == Keywords.Var)
             {
-                if (!ctx.Tokens.Read(out token)
-                    || token.Type != TokenType.Symbol
-                    || ((Token<Symbols>)token).Value != Symbols.CircleOpen)
+                if (!ctx.Tokens.Peek(out token) || token.Type != TokenType.Identifier)
                 {
-                    errorer.Append("Expected start of condition expression `(`", token!.Location);
+                    errorer.Append("Expected variable name", kwdToken.Location);
+                    return new Nop(kwdToken.Location);
+                }
+                var varName = (Token<string>)token;
+                ctx.Tokens.Read();
+
+                if (!ctx.Tokens.Peek(out token) || token.Type != TokenType.Symbol || ((Token<Symbols>)token).Value != Symbols.Equals)
+                {
+                    errorer.Append("Expected `=` in variable declaration", varName.Location);
+                    return new Nop(varName.Location);
+                }
+                ctx.Tokens.Read();
+
+                Executable? e = parseExpression(ctx, [Symbols.Semicolon], int.MinValue, true);
+                if (e == null)
+                {
+                    errorer.Append("Can not parse expression", kwdToken.Location);
                     return new Nop(kwdToken.Location);
                 }
 
-                Executable? cond = parseExpression(ctx, [Symbols.CircleClose], int.MinValue, false);
+                var variable = new VariableDefinition(varName.Value, e.ReturnType, ctx.FuncDef, [], new Location(kwdToken.Location, e.Location));
+                if (!ctx.NameCtx.Append(variable))
+                {
+                    errorer.Append($"Local variable with name `{varName.Value}` already exists", varName.Location);
+                    return new Nop(varName.Location);
+                }
+
+                var assign = new BinaryOperation(BinaryOperationTypes.Assign, new Identifyer(variable, variable.Type, variable.Location), e, e.ReturnType, new Location(kwdToken.Location, e.Location));
+                return assign;
+            }
+            else if (kwdToken.Value == Keywords.While)
+            {
+                if (!ctx.Tokens.Peek(out token))
+                {
+                    errorer.Append("Expected condition or `{`", kwdToken.Location);
+                    return new Nop(kwdToken.Location);
+                }
+
+                Executable? cond;
+                if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleOpen)
+                {
+                    ctx.Tokens.Read();
+                    cond = parseExpression(ctx, [Symbols.CircleClose], int.MinValue, false);
+                    ctx.Tokens.Read();
+                }
+                else if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CurlyOpen)
+                {
+                    errorer.Append("Expected condition before `{`", token.Location);
+                    cond = new Nop(kwdToken.Location);
+                }
+                else
+                {
+                    cond = parseExpression(ctx, [Symbols.CurlyOpen], int.MinValue, false);
+                }
+
                 if (cond == null)
                 {
                     errorer.Append("Con not parse condition", kwdToken.Location);
@@ -1255,7 +1316,8 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 else if (cond.ReturnType != DefaultType.Bool)
                     errorer.Append($"Expected bool type, not {cond.ReturnType}", cond.Location);
 
-                ctx.Tokens.Read();
+                if (cond is Nop)
+                    return new Nop(kwdToken.Location);
 
                 var wl = new WhileLoop(cond, new Location(kwdToken, kwdToken));
 
@@ -1279,15 +1341,29 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             }
             else if (kwdToken.Value == Keywords.If)
             {
-                if (!ctx.Tokens.Read(out token)
-                    || token.Type != TokenType.Symbol
-                    || ((Token<Symbols>)token).Value != Symbols.CircleOpen)
+                if (!ctx.Tokens.Peek(out token))
                 {
-                    errorer.Append("Expected start of condition expression `(`", token!.Location);
+                    errorer.Append("Expected condition or `{`", kwdToken.Location);
                     return new Nop(kwdToken.Location);
                 }
 
-                Executable? cond = parseExpression(ctx, [Symbols.CircleClose], int.MinValue, false);
+                Executable? cond;
+                if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleOpen)
+                {
+                    ctx.Tokens.Read();
+                    cond = parseExpression(ctx, [Symbols.CircleClose], int.MinValue, false);
+                    ctx.Tokens.Read();
+                }
+                else if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CurlyOpen)
+                {
+                    errorer.Append("Expected condition before `{`", token.Location);
+                    cond = new Nop(kwdToken.Location);
+                }
+                else
+                {
+                    cond = parseExpression(ctx, [Symbols.CurlyOpen], int.MinValue, false);
+                }
+
                 if (cond == null)
                 {
                     errorer.Append("Con not parse condition", kwdToken.Location);
@@ -1297,7 +1373,9 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 {
                     errorer.Append($"Expected bool type, not {cond.ReturnType}", cond.Location);
                 }
-                ctx.Tokens.Read();
+
+                if (cond is Nop)
+                    return new Nop(kwdToken.Location);
 
                 Executable body = parseInstruction(ctx, loops, out var bodyRT, ref maxLocalsSize);
                 Executable? elseBody = null;
@@ -1529,6 +1607,11 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         if (tryGetImmidiateValue(token, ctx, out var lhs))
             return lhs;
 
+        if (token is Token<Keywords> kwd && (kwd.Value == Keywords.True || kwd.Value == Keywords.False))
+        {
+            return new Literal<bool>(kwd.Value == Keywords.True, DefaultType.Bool, kwd.Location);
+        }
+
         if (token.Type != TokenType.Symbol)
         {
             errorer.Append($"Unexpected token {token}", token.Location);
@@ -1630,6 +1713,13 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             }
             else if (symbolToken.Value == Symbols.CurlyOpen)
             {
+                if (endSymbols.Contains(Symbols.CurlyOpen))
+                {
+                    if (consumeEndSymbol)
+                        ctx.Tokens.Read();
+                    return lhs;
+                }
+                
                 if (lhs is TypeValue tv && tv.Type is StructType st)
                 {
                     lhs = parseStructLiteral(st, ctx);
@@ -2068,6 +2158,9 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 return e;
             return new UnaryOperation(UnaryOperationTypes.Cast, e, DefaultType.FloatingPoint.Double, e.Location);
         }
+
+        if (e.ReturnType == DefaultType.Bool)
+            return new UnaryOperation(UnaryOperationTypes.Cast, e, DefaultType.Integer.Int, e.Location);
 
         return null;
     }

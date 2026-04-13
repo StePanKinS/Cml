@@ -26,8 +26,9 @@ public class FileContext : NameContext
         return base.Append(definition);
     }
 
-    protected override IEnumerable<Definition> getAllWithName(string name)
+    protected override IEnumerable<Definition> getAllWithName(string name, bool includeInternal = true)
         => Project.SelectMany(file => file)
             .Concat(Imports.Where(i => i.Namespace != null).SelectMany(i => i.Namespace!))
-            .Where(def => def.Name == name);
+            .Where(def => def.Name == name)
+            .Where(def => includeInternal || !def.Modifyers.Contains(Keywords.Internal));
 }

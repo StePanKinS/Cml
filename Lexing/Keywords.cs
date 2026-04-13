@@ -11,11 +11,12 @@ public enum Keywords
     For,
     Namespace,
     External,
-    Export,
+    Internal,
     Enum,
     True,
     False,
     Break,
     Continue,
     Loop,
+    Var,
 }

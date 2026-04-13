@@ -65,7 +65,7 @@ public class NameContext(NameContext parent, NamespaceDefinition nmspDef) : IEnu
 
     private bool tryGetName(string name, [MaybeNullWhen(false)] out Definition definition, bool goUp)
     {
-        var defs = getAllWithName(name).ToArray();
+        var defs = getAllWithName(name, !goUp).ToArray();
 
         if (defs.Length == 1)
         {
@@ -106,7 +106,7 @@ public class NameContext(NameContext parent, NamespaceDefinition nmspDef) : IEnu
         return false;
     }
 
-    protected virtual IEnumerable<Definition> getAllWithName(string name)
+    protected virtual IEnumerable<Definition> getAllWithName(string name, bool includeInternal = true)
     {
         IEnumerable<Definition> all = [
             .. Namespaces,
@@ -116,7 +116,10 @@ public class NameContext(NameContext parent, NamespaceDefinition nmspDef) : IEnu
             .. Variables,
             .. DefaultTypes,
         ];
-        return all.Where(d => d.Name == name);
+        all = all.Where(d => d.Name == name);
+        if (!includeInternal)
+            all = all.Where(d => !d.Modifyers.Contains(Keywords.Internal));
+        return all;
     }
 
     public bool TryGetType(string name, [MaybeNullWhen(false)] out Typ type)

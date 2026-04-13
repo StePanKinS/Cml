@@ -254,7 +254,7 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         string retType = getLlvmType(fn.ReturnType);
         var paramList = string.Join(", ", fn.Arguments.Arguments.Select((arg, idx) => $"{getLlvmType(arg.Type)} %arg{idx}"));
 
-        string linkage = fn.Modifyers.Contains(Keywords.Export) ? "" : "internal ";
+        string linkage = fn.Modifyers.Contains(Keywords.Internal) ? "internal " : "";
         sb.AppendLine($"define {linkage}{retType} @{fn.FullName}({paramList}) {{");
         sb.AppendLine("entry:");
 
@@ -763,6 +763,11 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
                 sb.AppendLine($"    {result} = sitofp {getLlvmType(intType)} {operandVal} to {getLlvmType(fpType)}");
             else
                 sb.AppendLine($"    {result} = uitofp {getLlvmType(intType)} {operandVal} to {getLlvmType(fpType)}");
+            return result;
+        }
+        else if (operand.ReturnType == DefaultType.Bool && target is DefaultType.Integer)
+        {
+            sb.AppendLine($"    {result} = zext i1 {operandVal} to {getLlvmType(target)}");
             return result;
         }
         else if (operand.ReturnType is DefaultType.FloatingPoint fpType2 && target is DefaultType.Integer intType2)

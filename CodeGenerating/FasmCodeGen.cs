@@ -159,7 +159,7 @@ public class FasmCodeGen(IEnumerable<FileDefinition> files) //, ErrorReporter er
             sb.Append($"extrn {fn.Name}\n\n");
             return;
         }
-        if (fn.Modifyers.Contains(Keywords.Export))
+        if (!fn.Modifyers.Contains(Keywords.Internal))
         {
             sb.Append($"    ; Exported function {fn.FullName}\n");
             sb.Append($"public {fn.FullName}\n");
