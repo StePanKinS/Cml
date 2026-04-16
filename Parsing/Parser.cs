@@ -1585,9 +1585,6 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
     )
     {
         Executable? lhs = parseExpressionStart(ctx, token, endSymbols, expectedType);
-        if (lhs == null)
-            return null;
-
         return continueParseExpression(ctx, endSymbols, minBP, consumeEndSymbol, lhs);
     }
 
@@ -1672,9 +1669,12 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         IEnumerable<Symbols> endSymbols,
         int minBP,
         bool consumeEndSymbol,
-        Executable lhs
+        Executable? lhs
     )
     {
+        if (lhs == null)
+            return null;
+
         Token? token;
         while (true)
         {
@@ -2149,6 +2149,8 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         {
             if (it == DefaultType.Integer.Lit)
                 return new UnaryOperation(UnaryOperationTypes.Cast, e, DefaultType.Integer.Long, e.Location);
+            if (it.Size < 4)
+                return new UnaryOperation(UnaryOperationTypes.Cast, e, DefaultType.Integer.GetObject(4, it.IsSigned), e.Location);
             return e;
         }
 

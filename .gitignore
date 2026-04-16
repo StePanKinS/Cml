@@ -9,5 +9,4 @@ cmltest
 a.out
 cml.patch
 
-test.cml
-test2.cml
+*.cml

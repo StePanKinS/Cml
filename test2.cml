@@ -1,7 +1,7 @@
 
 namespace clib
 {
-    external int printf(byte* fmt, void* ptr);
+    external int printf(byte* fmt, ...);
     external FILE* fopen(byte* path, byte* mode);
     external FILE* fdopen(int fd, byte* mode);
     external byte* fgets(byte* buffer, int size, FILE* stream);
@@ -31,4 +31,13 @@ struct string
 }
 
 void print(string str)
-    printf("%.*s", (void*)(ulong)str.length, str.data);
+    printf("%.*s", str.length, str.data);
+
+export int main()
+{
+    string str = string.from_cstr("Hello, world");
+    print(str);
+    printf("\n");
+
+    return 0;
+}
