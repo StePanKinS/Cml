@@ -93,6 +93,8 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
             return $"%struct.{st.Name}";
         else if (type is EnumType enumType)
             return getLlvmType(enumType.UnderlyingType);
+        else if (type is InterfaceType it)
+            return $"%interface.{it.Name}";
         else
             throw new Exception($"Unknown type {type}");
     }
@@ -139,9 +141,42 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
 
         foreach (var structType in structTypes)
         {
-            var members = string.Join(", ",
-                structType.Members.Select(m => getLlvmType(m.Type)));
+            List<string> layoutMembers = [];
+            
+            // Add vtable pointer for each implemented interface
+            foreach (var iface in structType.Interfaces)
+            {
+                layoutMembers.Add("ptr");
+            }
+            
+            // Add actual struct members
+            foreach (var m in structType.Members)
+            {
+                layoutMembers.Add(getLlvmType(m.Type));
+            }
+            
+            var members = string.Join(", ", layoutMembers);
             sb.AppendLine($"%struct.{structType.Name} = type {{ {members} }}");
+            
+            // Generate vtable globals for interfaces
+            for (int i = 0; i < structType.Interfaces.Length; i++)
+            {
+                var iface = structType.Interfaces[i];
+                var methodPtrs = new List<string>();
+                foreach (var im in iface.Methods)
+                {
+                    var methodFn = structType.GetMethod(im.Name);
+                    if (methodFn != null)
+                    {
+                        methodPtrs.Add($"ptr @{methodFn.FullName}");
+                    }
+                    else
+                    {
+                        methodPtrs.Add("ptr null");
+                    }
+                }
+                sb.AppendLine($"@VT_{structType.Name}_{i} = private constant [{iface.Methods.Length} x ptr] [{string.Join(", ", methodPtrs)}]");
+            }
         }
     }
 
@@ -223,6 +258,7 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
 
                 case DefaultTypeDefinition:
                 case EnumDefinition:
+                case InterfaceDefinition:
                     break;
 
                 case StructDefinition sd:
@@ -298,6 +334,9 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
 
             case MethodCall mc:
                 return generateMethodCall(mc, locals, sb);
+
+            case Cml.Parsing.Executables.InterfaceMethodDispatch imd:
+                return generateInterfaceMethodDispatch(imd, locals, sb);
 
             case MethodValue mv:
                 return generateMethodValue(mv, locals, sb);
@@ -461,7 +500,14 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         sb.AppendLine($"        ; CodeBlock {cb.Location}");
         foreach (var local in cb.Locals.Variables)
         {
-            sb.AppendLine($"    %{local.FullName} = alloca {getLlvmType(local.Type)}");
+            if (local.Type is InterfaceType)
+            {
+                sb.AppendLine($"    %{local.FullName} = alloca ptr");
+            }
+            else
+            {
+                sb.AppendLine($"    %{local.FullName} = alloca {getLlvmType(local.Type)}");
+            }
         }
 
         foreach (var executable in cb.Code)
@@ -479,9 +525,10 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
                 {
                     string rightVal = generateExecutable(bo.Right, locals, sb);
                     string leftPtr = generateLHS(bo.Left, locals, sb);
+                    string storeType = bo.Right.ReturnType is InterfaceType ? "ptr" : getLlvmType(bo.Right.ReturnType);
 
                     sb.AppendLine($"        ; Assign {bo.Location}");
-                    sb.AppendLine($"    store {getLlvmType(bo.Right.ReturnType)} {rightVal}, ptr {leftPtr}");
+                    sb.AppendLine($"    store {storeType} {rightVal}, ptr {leftPtr}");
 
                     return rightVal;
                 }
@@ -692,6 +739,26 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         Typ target = uo.ReturnType;
         Typ source  = operand.ReturnType;
 
+        if (source is StructType st && target is InterfaceType it)
+        {
+            if (!st.Interfaces.Contains(it))
+                throw new Exception($"Unknown cast {source} to {target}");
+            
+            sb.AppendLine($"        ; Cast struct to interface {uo.Location}");
+            string structVal = generateExecutable(operand, locals, sb);
+            
+            string castResult = getNextValueName();
+            
+            sb.AppendLine($"    {castResult} = alloca {getLlvmType(st)}");
+            sb.AppendLine($"    store {getLlvmType(st)} {structVal}, ptr {castResult}");
+            
+            int ifaceIdx = Array.IndexOf(st.Interfaces, it);
+            string vtableName = $"@VT_{st.Name}_{ifaceIdx}";
+            sb.AppendLine($"    store ptr {vtableName}, ptr {castResult}");
+            
+            return castResult;
+        }
+
         if (source is SizedArray && target is Pointer)
         {
             string array = generateLHS(operand, locals, sb);
@@ -826,6 +893,41 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         return generateFunctionCall(fc, locals, sb);
     }
 
+    private string generateInterfaceMethodDispatch(Cml.Parsing.Executables.InterfaceMethodDispatch imd, INameContainer locals, StringBuilder sb)
+    {
+        sb.AppendLine($"        ; Interface method dispatch {imd.Location}");
+        
+        string receiver = generateExecutable(imd.Args[0], locals, sb);
+        
+        // receiver is a ptr to a struct with vtable at offset 0
+        // Load vtable pointer from first field of struct
+        string vtablePtr = getNextValueName();
+        sb.AppendLine($"    {vtablePtr} = getelementptr inbounds ptr, ptr {receiver}, i32 0");
+        
+        string vtable = getNextValueName();
+        sb.AppendLine($"    {vtable} = load ptr, ptr {vtablePtr}");
+
+        int methodIdx = imd.MethodIndex;
+        string funcPtr = getNextValueName();
+        sb.AppendLine($"    {funcPtr} = getelementptr [1 x ptr], ptr {vtable}, i64 0, i32 {methodIdx}");
+        
+        string fn = getNextValueName();
+        sb.AppendLine($"    {fn} = load ptr, ptr {funcPtr}");
+        
+        // Build argument list with receiver as first argument
+        List<string> argValues = [ $"ptr {receiver}" ];
+        foreach (var arg in imd.Args.Skip(1))
+        {
+            string argVal = generateExecutable(arg, locals, sb);
+            argValues.Add($"{getLlvmType(arg.ReturnType)} {argVal}");
+        }
+        string argList = string.Join(", ", argValues);
+        
+        sb.AppendLine($"    call {getLlvmType(imd.ReturnType)} {fn}({argList})");
+        
+        return "";
+    }
+
     private string generateMethodValue(MethodValue mv, INameContainer locals, StringBuilder sb)
     {
         sb.AppendLine($"        ; Method value {mv.Location}");
@@ -842,7 +944,8 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         {
             // string allocName = localVariables[varDef.Name];
             string result = getNextValueName();
-            sb.AppendLine($"    {result} = load {getLlvmType(varDef.Type)}, ptr %{varDef.FullName}");
+            string loadType = varDef.Type is InterfaceType ? "ptr" : getLlvmType(varDef.Type);
+            sb.AppendLine($"    {result} = load {loadType}, ptr %{varDef.FullName}");
             return result;
         }
         else if (id.Definition is FunctionDefinition fnDef)
@@ -865,6 +968,8 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         {
             int memberIdx = getMemberIndex(st, gm.Member.Value);
             // var memberType = st.GetStructMember(gm.Member.Value);
+            int vtableOffset = st.Interfaces.Length;
+            memberIdx += vtableOffset;
 
             string result = getNextValueName();
             // sb.AppendLine($"    {elemPtr} = getelementptr {getLlvmType(st)}, ptr {basePtr}, i32 0, i32 {memberIdx}");
@@ -918,19 +1023,34 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         if (sl.FieldValues.Length == 0)
             return "zeroinitializer";
 
+        int vtableOffset = sl.StructType.Interfaces.Length;
+        
+        string current;
+        
+        if (vtableOffset > 0)
+        {
+            current = getNextValueName();
+            sb.AppendLine($"    {current} = insertvalue {structType} undef, ptr null, 0");
+        }
+        else
+        {
+            current = "undef";
+        }
+        
         string firstValue = generateExecutable(sl.FieldValues[0], locals, sb);
-        string current = getNextValueName();
-        sb.AppendLine($"    {current} = insertvalue {structType} undef, {getLlvmType(sl.StructType.Members[0].Type)} {firstValue}, 0");
+        string next = getNextValueName();
+        sb.AppendLine($"    {next} = insertvalue {structType} {current}, {getLlvmType(sl.StructType.Members[0].Type)} {firstValue}, {vtableOffset}");
 
         for (int i = 1; i < sl.FieldValues.Length; i++)
         {
             string fieldVal = generateExecutable(sl.FieldValues[i], locals, sb);
-            string next = getNextValueName();
-            sb.AppendLine($"    {next} = insertvalue {structType} {current}, {getLlvmType(sl.StructType.Members[i].Type)} {fieldVal}, {i}");
+            string nextI = getNextValueName();
+            sb.AppendLine($"    {nextI} = insertvalue {structType} {next}, {getLlvmType(sl.StructType.Members[i].Type)} {fieldVal}, {vtableOffset + i}");
             current = next;
+            next = nextI;
         }
 
-        return current;
+        return next;
     }
 
     private string generateEnumOf(EnumOfMethod eom, INameContainer locals, StringBuilder sb)

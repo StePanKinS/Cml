@@ -111,7 +111,17 @@ public record MethodValue
 public record MethodCall
 (
     Executable Operand,
-    FunctionDefinition Method,
+    FunctionDefinition? Method,
+    Executable[] Args,
+    Typ ReturnType,
+    Location Location
+) : Executable(ReturnType, Location);
+
+public record InterfaceMethodDispatch
+(
+    Executable Operand,
+    InterfaceType.InterfaceMethod Method,
+    int MethodIndex,
     Executable[] Args,
     Typ ReturnType,
     Location Location
@@ -160,6 +170,14 @@ public record StructLiteral
     Executable[] FieldValues,
     Location Location
 ) : Executable(StructType, Location);
+
+public record InterfaceMethodCall
+(
+    Executable Operand,
+    InterfaceType.InterfaceMethod Method,
+    int MethodIndex,
+    Location Location
+) : Executable(Method.ReturnType, Location);
 
 // public record StaticFunctionValue
 // (

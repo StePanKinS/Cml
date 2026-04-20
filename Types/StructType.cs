@@ -1,9 +1,10 @@
 namespace Cml.Types;
 
-public class StructType(string name, StructType.StructMember[] members, FunctionDefinition[] methods) : Typ(name, -1)
+public class StructType(string name, StructType.StructMember[] members, FunctionDefinition[] methods, InterfaceType[] interfaces) : Typ(name, -1)
 {
     public StructMember[] Members = members;
     public FunctionDefinition[] Methods = methods;
+    public InterfaceType[] Interfaces = interfaces;
 
     public override int Size {
         get {

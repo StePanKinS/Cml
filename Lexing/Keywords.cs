@@ -1,4 +1,4 @@
-﻿namespace Cml.Lexing;
+namespace Cml.Lexing;
 
 public enum Keywords
 {
@@ -19,4 +19,6 @@ public enum Keywords
     Continue,
     Loop,
     Var,
+    Interface,
+    Implements,
 }

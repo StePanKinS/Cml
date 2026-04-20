@@ -1,4 +1,4 @@
-﻿namespace Cml.Parsing.Definitions;
+namespace Cml.Parsing.Definitions;
 
 public class StructDefinition(
     string name,
@@ -6,12 +6,14 @@ public class StructDefinition(
     IEnumerable<FunctionDefinition> methods,
     Definition parent,
     Keywords[] modifyers,
-    Location location
+    Location location,
+    IEnumerable<Token<string>>? implements = null
 ) : Definition(name, parent, modifyers, location), ITypeContainer
 {
     public (Token[] type, Token<string> name)[] Members = members.ToArray();
     public List<FunctionDefinition> Methods = methods.ToList();
+    public List<Token<string>> Implements = implements?.ToList() ?? [];
     public StructType StructType { get; set; } =
-        new(name, members.Select(m => new StructType.StructMember(m.name.Value, typeName: m.type)).ToArray(), methods.ToArray());
+        new(name, members.Select(m => new StructType.StructMember(m.name.Value, typeName: m.type)).ToArray(), methods.ToArray(), []);
     public Typ Type { get => StructType; }
 }

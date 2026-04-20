@@ -13,6 +13,7 @@ public class NameContext(NameContext parent, NamespaceDefinition nmspDef) : IEnu
     public List<VariableDefinition> Variables = [];
     public List<DefaultTypeDefinition> DefaultTypes = [];
     public List<EnumDefinition> Enums = [];
+    public List<InterfaceDefinition> Interfaces = [];
 
     public virtual bool Append(Definition definition)
     {
@@ -41,6 +42,9 @@ public class NameContext(NameContext parent, NamespaceDefinition nmspDef) : IEnu
                 return true;
             case DefaultTypeDefinition deft:
                 DefaultTypes.Add(deft);
+                return true;
+            case InterfaceDefinition iface:
+                Interfaces.Add(iface);
                 return true;
             default:
                 throw new ArgumentException($"Unexpected type {definition.GetType().FullName} in {nameof(definition)}");
@@ -112,6 +116,7 @@ public class NameContext(NameContext parent, NamespaceDefinition nmspDef) : IEnu
             .. Namespaces,
             .. Structs,
             .. Enums,
+            .. Interfaces,
             .. Functions,
             .. Variables,
             .. DefaultTypes,
@@ -150,7 +155,7 @@ public class NameContext(NameContext parent, NamespaceDefinition nmspDef) : IEnu
     public int Size => 0;
 
     public IEnumerator<Definition> GetEnumerator()
-        => ((IEnumerable<Definition>)[.. Namespaces, .. Structs, .. Enums, .. Functions, .. Variables, .. DefaultTypes]).GetEnumerator();
+        => ((IEnumerable<Definition>)[.. Namespaces, .. Structs, .. Enums, .. Interfaces, .. Functions, .. Variables, .. DefaultTypes]).GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator()
         => GetEnumerator();

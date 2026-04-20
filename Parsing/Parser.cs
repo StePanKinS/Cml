@@ -73,6 +73,12 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                         modifyers.Clear();
                         continue;
                     }
+                    if (kwdToken.Value == Keywords.Interface)
+                    {
+                        readInterface(er, nmsp, [.. from m in modifyers select m.Value]);
+                        modifyers.Clear();
+                        continue;
+                    }
                     if (kwdToken.Value == Keywords.Enum)
                     {
                         readEnum(er, nmsp, [.. from m in modifyers select m.Value]);
@@ -189,13 +195,33 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
         var nameToken = (Token<string>)token;
 
-        if (!er.Read(out token))
+        List<Token<string>> implements = [];
+        if (er.Peek(out token) && token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.Colon)
         {
-            Location loc = new(kwdToken.Location, nameToken.Location);
-            errorer.Append("Expected `{`, not file END", loc);
-            return;
+            er.Read(out _);
+            if (!er.Read(out token) || token.Type != TokenType.Identifier)
+            {
+                errorer.Append("Expected interface name after `:`", nameToken.Location);
+            }
+            else
+            {
+                var interfaceName = (Token<string>)token;
+                implements.Add(interfaceName);
+                if (!er.Read(out token))
+                {
+                    errorer.Append("Expected `{`, not file end", interfaceName.Location);
+                    return;
+                }
+            }
         }
-
+        else if (er.Peek(out token))
+        {
+            if (!er.Read(out token))
+            {
+                errorer.Append("Expected `{`, not file end", nameToken.Location);
+                return;
+            }
+        }
 
         if (token.Type != TokenType.Symbol || ((Token<Symbols>)token).Value != Symbols.CurlyOpen)
         {
@@ -246,8 +272,8 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 if (fd != null)
                     methods.Add(fd);
 
-                // After a method, a comma is optional ig?!
-                if (er.Peek(out t) && t.Type == TokenType.Symbol && ((Token<Symbols>)t).Value == StructMemberSeparator)
+                // After a method, a separator is optional
+                if (er.Peek(out t) && t.Type == TokenType.Symbol && (((Token<Symbols>)t).Value == StructMemberSeparator || ((Token<Symbols>)t).Value == Symbols.Semicolon))
                 {
                     er.Read(out _);
                 }
@@ -272,9 +298,9 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 break;
             }
 
-            if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == StructMemberSeparator)
+            if (token.Type == TokenType.Symbol && (((Token<Symbols>)token).Value == StructMemberSeparator || ((Token<Symbols>)token).Value == Symbols.Semicolon))
             {
-                er.Read(out _); // consume the comma
+                er.Read(out _); // consume the separator
                 continue;
             }
 
@@ -288,10 +314,143 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         }
 
         Location location = new(kwdToken, t!);
-        StructDefinition sd = new(nameToken.Value, members, methods, nmsp, modifyers, location);
+        StructDefinition sd = new(nameToken.Value, members, methods, nmsp, modifyers, location, implements);
         foreach (var method in sd.Methods)
             method.Parent = sd;
         nmsp.Append(sd);
+    }
+
+    private void readInterface(EnumerableReader<Token> er, NamespaceDefinition nmsp, Keywords[] modifyers)
+    {
+        Token? token, t;
+        er.Read(out token);
+        var kwdToken = (Token<Keywords>)token!;
+
+        if (!er.Read(out token) || token.Type != TokenType.Identifier)
+        {
+            errorer.Append("Expected interface name", token?.Location ?? kwdToken.Location);
+            return;
+        }
+
+        var nameToken = (Token<string>)token;
+
+        if (!er.Read(out token) || token.Type != TokenType.Symbol || ((Token<Symbols>)token).Value != Symbols.CurlyOpen)
+        {
+            errorer.Append("Expected `{`, not " + token?.ToString(), token?.Location ?? nameToken.Location);
+            return;
+        }
+
+        t = token;
+        List<InterfaceType.InterfaceMethod> methods = [];
+
+        while (true)
+        {
+            if (er.Peek(out token) && token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CurlyClose)
+            {
+                er.Read(out t);
+                break;
+            }
+
+            Token[]? returnType = readTypeName(er);
+            if (returnType == null)
+                return;
+
+            if (!er.Read(out token) || token.Type != TokenType.Identifier)
+            {
+                errorer.Append("Expected method name", token?.Location ?? returnType.TokensLocation());
+                return;
+            }
+
+            var methodName = (Token<string>)token;
+
+            Typ[] parameters = [];
+            if (er.Peek(out token) && token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleOpen)
+            {
+                er.Read(out _);
+                parameters = readParameters(er, nmsp);
+            }
+
+            Typ? retType = resolveType(nmsp.NameContext, returnType);
+            if (retType == null)
+            {
+                errorer.Append($"Cannot resolve return type {((Token<string>)returnType[0]).Value}", returnType.TokensLocation());
+            }
+            else
+            {
+                methods.Add(new InterfaceType.InterfaceMethod(methodName.Value, retType, parameters));
+            }
+
+            if (!er.Peek(out token))
+            {
+                errorer.Append("Expected `;` or `,` or `}`", methodName.Location);
+                return;
+            }
+
+            if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CurlyClose)
+            {
+                er.Read(out t);
+                break;
+            }
+
+            if (token.Type == TokenType.Symbol && (((Token<Symbols>)token).Value == StructMemberSeparator || ((Token<Symbols>)token).Value == Symbols.Semicolon))
+            {
+                er.Read(out _);
+                continue;
+            }
+
+            errorer.Append($"Expected `;`, `,` or `}}`, got {token}", token.Location);
+            return;
+        }
+
+        Location location = new(kwdToken, t!);
+        InterfaceDefinition id = new(nameToken.Value, methods, nmsp, modifyers, location);
+        nmsp.Append(id);
+    }
+
+    private Typ[] readParameters(EnumerableReader<Token> er, NamespaceDefinition nmsp)
+    {
+        List<Typ> parameters = [];
+        Token? token;
+
+        while (true)
+        {
+            if (!er.Peek(out token))
+                return parameters.ToArray();
+
+            if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleClose)
+            {
+                er.Read(out _);
+                break;
+            }
+
+            Token[]? paramType = readTypeName(er);
+            if (paramType == null)
+                return parameters.ToArray();
+
+            Typ? resolved = resolveType(nmsp.NameContext, paramType);
+            if (resolved != null)
+                parameters.Add(resolved);
+
+            if (!er.Read(out token))
+                return parameters.ToArray();
+
+            if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleClose)
+            {
+                er.Read(out _);
+                break;
+            }
+
+            if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == StructMemberSeparator)
+            {
+                er.Read(out _);
+                continue;
+            }
+
+            errorer.Append($"Expected `)` or `,` in parameters, got {token}", token.Location);
+            return parameters.ToArray();
+        }
+
+        return parameters.ToArray();
     }
 
     private void readEnum(EnumerableReader<Token> er, NamespaceDefinition nmsp, Keywords[] modifyers)
@@ -1011,6 +1170,8 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             }
             else if (d is DefaultTypeDefinition)
                 continue;
+            else if (d is InterfaceDefinition)
+                continue;
             else if (d is EnumDefinition)
                 continue;
             else if (d is VariableDefinition varDef)
@@ -1038,6 +1199,27 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         {
             setFunctionReferences(method);
         }
+
+        List<InterfaceType> implInterfaces = [];
+        foreach (var implToken in structDef.Implements)
+        {
+            if (!nmsp.TryGetName(implToken.Value, out var implDef) || implDef is not InterfaceDefinition interfaceDef)
+            {
+                errorer.Append($"Cannot find interface `{implToken.Value}`", implToken.Location);
+                continue;
+            }
+            var methodsInInterface = interfaceDef.InterfaceType.Methods;
+            foreach (var required in methodsInInterface)
+            {
+                var hasMethod = structDef.StructType.GetMethod(required.Name);
+                if (hasMethod == null)
+                {
+                    errorer.Append($"Struct `{structDef.Name}` does not implement `{interfaceDef.Name}`: missing method `{required.Name}`", structDef.Location);
+                }
+            }
+            implInterfaces.Add(interfaceDef.InterfaceType);
+        }
+        structDef.StructType.Interfaces = implInterfaces.ToArray();
     }
 
     private void setFunctionReferences(FunctionDefinition funcDef)
@@ -2134,6 +2316,12 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         else if (targetType is EnumType te && (e.ReturnType == te.UnderlyingType || (e.ReturnType is Pointer rp2 && rp2.PointsTo == DefaultType.Void)))
             allowed = true;
 
+        else if (e.ReturnType is StructType st && targetType is InterfaceType it)
+        {
+            if (st.Interfaces.Contains(it))
+                allowed = true;
+        }
+
         if (allowed)
             return new UnaryOperation(UnaryOperationTypes.Cast, e, targetType, e.Location);
         else
@@ -2305,20 +2493,44 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 return new GetMember(dereferenced, nameToken, ptrMember.Type, new Location(lhs.Location, nameToken.Location));
             }
 
-            if (lhs.ReturnType is not StructType st)
+            if (lhs.ReturnType is not StructType st && lhs.ReturnType is not InterfaceType it)
             {
                 errorer.Append($"Expected composite type, not {lhs.ReturnType}", lhs.Location);
                 return null;
             }
-            var member = st.GetStructMember(nameToken.Value);
+            
+            StructType.StructMember? member = null;
+            FunctionDefinition? method = null;
+            InterfaceType.InterfaceMethod? interfaceMethod = null;
+            
+            if (lhs.ReturnType is StructType st2)
+            {
+                member = st2.GetStructMember(nameToken.Value);
+                if (member == null)
+                {
+                    method = st2.GetMethod(nameToken.Value);
+                }
+            }
+            InterfaceType? interfaceType = null;
+            if (lhs.ReturnType is InterfaceType it2)
+            {
+                interfaceType = it2;
+                interfaceMethod = it2.GetMethod(nameToken.Value);
+            }
+
+            if (method != null)
+            {
+                return new MethodValue(lhs, method, location);
+            }
+
+            if (interfaceMethod != null)
+            {
+                int methodIdx = interfaceType!.GetMethodIndex(nameToken.Value);
+                return new InterfaceMethodCall(lhs, interfaceMethod, methodIdx, location);
+            }
+            
             if (member == null)
             {
-                var method = st.GetMethod(nameToken.Value);
-                if (method != null)
-                {
-                    return new MethodValue(lhs, method, location);
-                }
-
                 errorer.Append($"Member or method with name {nameToken.Value} doesnt exist in type {lhs.ReturnType}", nameToken.Location);
                 return null;
             }
@@ -2326,6 +2538,45 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         }
 
         return new GetMember(lhs, nameToken, retType, new Location(lhs.Location, nameToken.Location));
+    }
+
+    private Executable? parseInterfaceMethodCall(Cml.Parsing.Executables.InterfaceMethodCall imc, Context ctx, Location loc)
+    {
+        if (!ctx.Tokens.Read(out var token) || token.Type != TokenType.Symbol || ((Token<Symbols>)token).Value != Symbols.CircleOpen)
+        {
+            errorer.Append($"Expected `(`, not {token}", token?.Location ?? loc);
+            return null;
+        }
+        
+        List<Executable> args = [imc.Operand];
+        
+        Token? nextToken;
+        Location endLoc = loc;
+        while (ctx.Tokens.Peek(out nextToken))
+        {
+            if (nextToken.Type == TokenType.Symbol && ((Token<Symbols>)nextToken).Value == Symbols.CircleClose)
+            {
+                ctx.Tokens.Read();
+                endLoc = new(loc, nextToken.Location);
+                break;
+            }
+            
+            if (args.Count > 1)
+            {
+                if (nextToken.Type == TokenType.Symbol && ((Token<Symbols>)nextToken).Value == Symbols.Comma)
+                {
+                    ctx.Tokens.Read();
+                    continue;
+                }
+            }
+            
+            Executable? arg = parseExpression(ctx, [Symbols.CircleClose, Symbols.Comma], 0, false);
+            if (arg == null)
+                return null;
+            args.Add(arg);
+        }
+        
+        return new MethodCall(imc.Operand, null, [.. args], imc.ReturnType, endLoc);
     }
 
     private Executable? parseStructLiteral(StructType st, Context ctx, Token? openBrace = null)
@@ -2503,6 +2754,38 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
     {
         ctx.Tokens.Read();
 
+        if (lhs is Cml.Parsing.Executables.InterfaceMethodCall imc)
+        {
+            Location imcLoc = lhs.Location;
+            List<Executable> args3 = [imc.Operand];
+            
+            while (ctx.Tokens.Peek(out var token4))
+            {
+                if (token4.Type == TokenType.Symbol && ((Token<Symbols>)token4).Value == Symbols.CircleClose)
+                {
+                    ctx.Tokens.Read();
+                    imcLoc = new(imcLoc, token4.Location);
+                    break;
+                }
+                
+                Executable? arg = parseExpression(ctx, [Symbols.CircleClose, Symbols.Comma], 0, false);
+                if (arg == null)
+                    return null;
+                args3.Add(arg);
+                
+                if (ctx.Tokens.Peek(out token4))
+                {
+                    if (token4.Type == TokenType.Symbol && ((Token<Symbols>)token4).Value == Symbols.Comma)
+                    {
+                        ctx.Tokens.Read();
+                        continue;
+                    }
+                }
+            }
+            
+            return new Cml.Parsing.Executables.InterfaceMethodDispatch(imc.Operand, imc.Method, imc.MethodIndex, [.. args3], imc.ReturnType, imcLoc);
+        }
+
         if (lhs is EnumMethodValue emv)
         {
             if (emv.MethodName == "of")
@@ -2570,7 +2853,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             }
         }
 
-        if (lhs is MethodValue mv)
+if (lhs is MethodValue mv)
         {
             Location loc2 = lhs.Location;
             List<Executable> args2 = [];
@@ -2635,7 +2918,19 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                     return null;
                 }
                 if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.Comma)
+                {
                     ctx.Tokens.Read();
+                    continue;
+                }
+
+                if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleClose)
+                {
+                    loc2 = new(loc2, token.Location);
+                    ctx.Tokens.Read();
+                    break;
+                }
+
+                return null;
             }
 
             if (args2.Count != mv.Method.Arguments.Arguments.Count)
@@ -2749,6 +3044,11 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         else if (def is EnumDefinition enumDef)
         {
             executable = new TypeValue(enumDef.EnumType, ident.Location);
+            return true;
+        }
+        else if (def is InterfaceDefinition interfaceDef)
+        {
+            executable = new TypeValue(interfaceDef.InterfaceType, ident.Location);
             return true;
         }
 
