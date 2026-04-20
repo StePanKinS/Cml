@@ -34,20 +34,6 @@ public class StructType(string name, StructType.StructMember[] members, Function
         return null;
     }
 
-    public int GetMemberOffset(string name)
-    {
-        int offset = 0;
-        foreach (var member in Members)
-        {
-            if (member.Name == name)
-                return offset;
-
-            offset += member.Type.Size;
-        }
-
-        throw new ArgumentException($"Member with name {name} doesnt exist");
-    }
-
     public override bool Equals(object? obj)
     {
         if (obj is not StructType sd)

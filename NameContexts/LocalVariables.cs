@@ -67,23 +67,6 @@ public class LocalVariables(INameContainer parent) : INameContainer
         return Parent.TryGetName(name, out definition);
     }
 
-    public int GetVariableOffset(VariableDefinition variable)
-    {
-        if (!Variables.Contains(variable))
-            return Parent.GetVariableOffset(variable);
-
-        int offset = Parent.Size;
-        foreach (var v in Variables)
-        {
-            offset += (v.Type.Size + 7) & ~7;
-
-            if (v == variable)
-                return -offset;
-        }
-
-        throw new Exception("How did we get here. GetVariableOffset");
-    }
-
     public bool TryGetType(string name, [MaybeNullWhen(false)] out Typ type)
         => Parent.TryGetType(name, out type);
 }

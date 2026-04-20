@@ -147,9 +147,6 @@ public class NameContext(NameContext parent, NamespaceDefinition nmspDef) : IEnu
         return true;
     }
 
-    public int GetVariableOffset(VariableDefinition variable)
-        => 0;
-
     public int Size => 0;
 
     public IEnumerator<Definition> GetEnumerator()

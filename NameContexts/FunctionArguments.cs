@@ -36,60 +36,9 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
         return true;
     }
 
-    public bool Append(Token[] type, Token<string> name)
+public bool Append(Token[] type, Token<string> name)
         => Append(new VariableDefinition(name.Value, type, 
             ParentFunction, [], new Location(type.TokensLocation(), name.Location)));
-
-    public int GetVariableOffset(VariableDefinition variable)
-    {
-        if (!Arguments.Contains(variable))
-            return Parent.GetVariableOffset(variable);
-
-        int intCnt = 0;
-        int fltCnt = 0;
-        int memCnt = 0;
-        bool inMemory = false;
-
-        foreach (var v in Arguments)
-        {
-            if (v.Type is DefaultType.Integer || v.Type is Pointer || v.Type is EnumType)
-            {
-                if (intCnt < 6)
-                    intCnt++;
-                else
-                {
-                    memCnt++;
-                    if (variable.Type is DefaultType.Integer || variable.Type is Pointer || variable.Type is EnumType)
-                        inMemory = true;
-                }
-            }
-            else if (v.Type is DefaultType.FloatingPoint)
-            {
-                if (fltCnt < 8)
-                    intCnt++;
-                else
-                {
-                    memCnt++;
-                    if (variable.Type is DefaultType.FloatingPoint)
-                        inMemory = true;
-                }
-            }
-            else
-                throw new NotImplementedException("Only integer and pointer argument types are supported");
-
-
-            if (v == variable)
-            {
-                if (inMemory)
-                    return 16 + (memCnt - 1) * 8;
-                else
-                    return - (intCnt + fltCnt) * 8;
-            }
-            
-        }
-
-        return 1;
-    }
 
     public bool TryGetName(string name, [MaybeNullWhen(false)] out Definition definition)
     {

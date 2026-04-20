@@ -36,13 +36,6 @@ Option<bool> printTokensOption = new("--print-tokens", ["-t"])
 };
 rootCommand.Options.Add(printTokensOption);
 
-Option<string> backendOption = new("--backend", ["-b"])
-{
-    DefaultValueFactory = (_) => "llvm",
-    Description = "Code generation backend: fasm or llvm",
-};
-rootCommand.Options.Add(backendOption);
-
 ParseResult parseResult = rootCommand.Parse(args);
 if (parseResult.Invoke() != 0) Environment.Exit(1);
 
@@ -53,19 +46,11 @@ if (inputs == null || inputs.Length == 0) // uhhhh...
     Environment.Exit(1);
 }
 
-string backend = parseResult.GetValue(backendOption)!.ToLower();
-if (backend != "fasm" && backend != "llvm")
-{
-    Console.WriteLine("Error: Backend must be 'fasm' or 'llvm'");
-    Environment.Exit(1);
-}
-
 CmlProject cmlp = new(
     parseResult.GetValue(outputOption)!,
     "./",
     inputs,
-    printTokens: parseResult.GetValue(printTokensOption),
-    backend: backend
+    printTokens: parseResult.GetValue(printTokensOption)
 );
 
 ErrorReporter errorer = Compiler.Compile(cmlp);
