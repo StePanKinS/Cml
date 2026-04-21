@@ -2472,6 +2472,13 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 errorer.Append($"Struct `{st.Name}` does not have static function `{nameToken.Value}`", nameToken.Location);
                 return null;
             }
+            else if (tv.Type is StringType)
+            {
+                if (nameToken.Value == "from_c")
+                {
+                    return parseStringFromCStatic(tokens, nameCtx, location);
+                }
+            }
 
             errorer.Append($"Type `{tv.Type.Name}` does not have static members", nameToken.Location);
             return null;
@@ -2503,7 +2510,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 return new GetMember(dereferenced, nameToken, ptrMember.Type, new Location(lhs.Location, nameToken.Location));
             }
 
-            if (lhs.ReturnType is not StructType st && lhs.ReturnType is not InterfaceType it)
+            if (lhs.ReturnType is not StructType st && lhs.ReturnType is not InterfaceType it && lhs.ReturnType is not StringType)
             {
                 errorer.Append($"Expected composite type, not {lhs.ReturnType}", lhs.Location);
                 return null;
@@ -2520,6 +2527,28 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 {
                     method = st2.GetMethod(nameToken.Value);
                 }
+            }
+            if (lhs.ReturnType is StringType stringType)
+            {
+                if (nameToken.Value == "data")
+                {
+                    return new GetMember(lhs, nameToken, new Pointer(DefaultType.Integer.Byte), location);
+                }
+                if (nameToken.Value == "length")
+                {
+                    return new GetMember(lhs, nameToken, DefaultType.Integer.Long, location);
+                }
+                if (nameToken.Value == "to_c")
+                {
+                    var toCMethodDef = new FunctionDefinition("to_c", [], null!, []);
+                    toCMethodDef.ReturnType = new Pointer(DefaultType.Integer.Byte);
+                    var selfArg = new VariableDefinition("this", StringType.Instance, toCMethodDef, [], location);
+                    var fa = new FunctionArguments(null!, toCMethodDef);
+                    fa.Arguments.Add(selfArg);
+                    toCMethodDef.Arguments = fa;
+                    return new MethodValue(lhs, toCMethodDef, location);
+                }
+                method = stringType.GetMethod(nameToken.Value);
             }
             InterfaceType? interfaceType = null;
             if (lhs.ReturnType is InterfaceType it2)
@@ -2859,11 +2888,21 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                     return null;
                 }
 
-                return new EnumNameMethod(emv.EnumType, emv.Operand, emv.Location);
+return new EnumNameMethod(emv.EnumType, emv.Operand, emv.Location);
             }
         }
 
-if (lhs is MethodValue mv)
+        if (lhs is MethodValue methodVal && methodVal.Method == null)
+        {
+            if (methodVal.Operand.ReturnType is StringType)
+            {
+                return parseStringMethodCall(methodVal.Operand, ctx, lhs.Location);
+            }
+            errorer.Append("Cannot call method on non-string type", methodVal.Location);
+            return null;
+        }
+
+        if (lhs is MethodValue mv && mv.Method != null)
         {
             Location loc2 = lhs.Location;
             List<Executable> args2 = [];
@@ -3247,6 +3286,97 @@ if (lhs is MethodValue mv)
             result = new BinaryOperation(BinaryOperationTypes.Add, result, parts[i], StringType.Instance, loc);
         }
         return result;
+    }
+
+    private Executable parseStringMethodCall(Executable operand, Context ctx, Location loc)
+    {
+        if (!ctx.Tokens.Peek(out var token) || token.Type != TokenType.Symbol || ((Token<Symbols>)token).Value != Symbols.CircleOpen)
+        {
+            errorer.Append("Expected `(` after method name", loc);
+            return null!;
+        }
+        ctx.Tokens.Read();
+
+        List<Executable> args = [];
+        
+        while (true)
+        {
+            if (!ctx.Tokens.Peek(out token))
+            {
+                errorer.Append("Unexpected end of file", loc);
+                return null!;
+            }
+            if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleClose)
+            {
+                ctx.Tokens.Read();
+                break;
+            }
+            
+            Executable? arg = parseExpression(ctx, [Symbols.CircleClose, Symbols.Comma], 0, false);
+            if (arg == null)
+                return null!;
+            args.Add(arg);
+            
+            if (!ctx.Tokens.Peek(out token))
+            {
+                errorer.Append("Unexpected end of file", loc);
+                return null!;
+            }
+            if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.Comma)
+            {
+                ctx.Tokens.Read();
+                continue;
+            }
+            if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleClose)
+            {
+                ctx.Tokens.Read();
+                break;
+            }
+            errorer.Append($"Expected `)` or `,` in method call, got {token}", token.Location);
+            return null!;
+        }
+        
+        return new MethodCall(operand, null, [operand], new Pointer(DefaultType.Integer.Byte), loc);
+    }
+
+    private Executable parseStringFromCStatic(EnumerableReader<Token> tokens, INameContainer nameCtx, Location loc)
+    {
+        if (!tokens.Peek(out var token) || token.Type != TokenType.Symbol || ((Token<Symbols>)token).Value != Symbols.CircleOpen)
+        {
+            errorer.Append("Expected `(` after from_c", loc);
+            return null!;
+        }
+        tokens.Read();
+
+        if (!tokens.Peek(out token))
+        {
+            errorer.Append("Unexpected end of file", loc);
+            return null!;
+        }
+        
+        var ctx = new Context(tokens, nameCtx!, null!);
+        Executable? arg = parseExpression(ctx, [Symbols.CircleClose], 0, false);
+        if (arg == null)
+            return null!;
+        
+        if (arg.ReturnType is not Pointer)
+        {
+            errorer.Append("from_c expects byte* argument", arg.Location);
+        }
+        
+        if (!ctx.Tokens.Peek(out token))
+        {
+            errorer.Append("Unexpected end of file", loc);
+            return null!;
+        }
+        if (token.Type != TokenType.Symbol || ((Token<Symbols>)token).Value != Symbols.CircleClose)
+        {
+            errorer.Append("Expected `)` in from_c", token.Location);
+            return null!;
+        }
+        ctx.Tokens.Read();
+        
+        return new StringFromCExpr(arg, loc);
     }
 
     private record Context(

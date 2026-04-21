@@ -104,9 +104,9 @@ public record NamespaceValue
 public record MethodValue
 (
     Executable Operand,
-    FunctionDefinition Method,
+    FunctionDefinition? Method,
     Location Location
-) : Executable(new FunctionPointer(Method), Location);
+) : Executable(Method != null ? new FunctionPointer(Method) : DefaultType.Void, Location);
 
 public record MethodCall
 (
@@ -178,6 +178,12 @@ public record InterfaceMethodCall
     int MethodIndex,
     Location Location
 ) : Executable(Method.ReturnType, Location);
+
+public record StringFromCExpr
+(
+    Executable Arg,
+    Location Location
+) : Executable(StringType.Instance, Location);
 
 // public record StaticFunctionValue
 // (

@@ -1,4 +1,5 @@
 using System.Text;
+using Cml.Parsing.Executables;
 
 namespace Cml.CodeGeneration;
 
@@ -10,7 +11,7 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
     private bool needsStrcmp = false;
     private bool needsStringConcat = false;
     private bool needsStringToC = false;
-    private bool needsStringFromC = false;
+    public bool needsStringFromC = false;
     private int ifsCounter = 0;
     private int loopsCounter = 0;
     private int valueCounter = 0;
@@ -142,7 +143,11 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
             if (needsStringToC)
                 sb.AppendLine("declare i8* @string_to_c(%struct.string)");
             if (needsStringFromC)
+            {
+                sb.AppendLine("declare i8* @malloc(i64)");
+                sb.AppendLine("declare i64 @strlen(i8*)");
                 sb.AppendLine("declare %struct.string @string_from_c(i8*)");
+            }
             sb.AppendLine();
         }
 
@@ -403,6 +408,25 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
                     string result = getNextValueName();
                     sb.AppendLine($"    {result} = load double, ptr @double{dcount} ; Literal {doubleLit.Location}");
                     return result;
+                }
+
+            case StringFromCExpr fromC:
+                {
+                    needsStringFromC = true;
+                    string ptrVal = generateExecutable(fromC.Arg, locals, sb);
+                    string len = getNextValueName();
+                    sb.AppendLine($"    {len} = call i64 @strlen(i8* {ptrVal})");
+                    string alloc = getNextValueName();
+                    sb.AppendLine($"    {alloc} = call ptr @malloc(i64 {len})");
+                    sb.AppendLine($"    call void @llvm.memcpy.p0i8.p0i8.i64(ptr {alloc}, ptr {ptrVal}, i64 {len}, i1 false)");
+                    string nullChar = getNextValueName();
+                    sb.AppendLine($"    {nullChar} = getelementptr i8, ptr {alloc}, i64 {len}");
+                    sb.AppendLine($"    store i8 0, ptr {nullChar}");
+                    string result = getNextValueName();
+                    sb.AppendLine($"    {result} = insertvalue %struct.string undef, ptr {alloc}, 0");
+                    string final = getNextValueName();
+                    sb.AppendLine($"    {final} = insertvalue %struct.string {result}, i64 {len}, 1");
+                    return final;
                 }
 
             case BinaryOperation bo:
@@ -964,6 +988,34 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
     private string generateMethodCall(MethodCall mc, INameContainer locals, StringBuilder sb)
     {
         sb.AppendLine($"        ; Method call {mc.Location}");
+        
+        if (mc.Operand?.ReturnType is StringType && mc.Method != null)
+        {
+            if (mc.Method.Name == "to_c")
+            {
+                needsStringToC = true;
+                string strVal = generateExecutable(mc.Operand, locals, sb);
+                string data = getNextValueName();
+                sb.AppendLine($"    {data} = extractvalue %struct.string {strVal}, 0");
+                return data;
+            }
+            if (mc.Method.Name == "from_c")
+            {
+                needsStringFromC = true;
+                string ptrVal = generateExecutable(mc.Args[0], locals, sb);
+                string len = getNextValueName();
+                sb.AppendLine($"    {len} = call i64 @strlen(i8* {ptrVal})");
+                string allocResult = getNextValueName();
+                sb.AppendLine($"    {allocResult} = call ptr @malloc(i64 {len})");
+                sb.AppendLine($"    call void @llvm.memcpy.p0i8.p0i8.i64(ptr {allocResult}, ptr {ptrVal}, i64 {len}, i1 false)");
+                string result = getNextValueName();
+                sb.AppendLine($"    {result} = insertvalue %struct.string undef, ptr {allocResult}, 0");
+                string final = getNextValueName();
+                sb.AppendLine($"    {final} = insertvalue %struct.string {result}, i64 {len}, 1");
+                return final;
+            }
+        }
+        
         FunctionCall fc = new(new Identifyer(mc.Method, new FunctionPointer(mc.Method), mc.Location), mc.Args, mc.ReturnType, mc.Location);
         return generateFunctionCall(fc, locals, sb);
     }
@@ -1006,6 +1058,19 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
     private string generateMethodValue(MethodValue mv, INameContainer locals, StringBuilder sb)
     {
         sb.AppendLine($"        ; Method value {mv.Location}");
+        
+        if (mv.Operand?.ReturnType is StringType)
+        {
+            if (mv.Method != null && mv.Method.Name == "to_c")
+            {
+                needsStringToC = true;
+                string strVal = generateExecutable(mv.Operand, locals, sb);
+                string data = getNextValueName();
+                sb.AppendLine($"    {data} = extractvalue %struct.string {strVal}, 0");
+                return data;
+            }
+        }
+        
         if (mv.Method.Modifyers.Contains(Keywords.External))
             return $"@{mv.Method.Name}";
         return $"@{mv.Method.FullName}";
@@ -1051,6 +1116,22 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
             sb.AppendLine($"    {result} = extractvalue {getLlvmType(gm.Operand.ReturnType)} {baseVal}, {memberIdx}");
 
             return result;
+        }
+        else if (gm.Operand.ReturnType is StringType)
+        {
+            if (gm.Member.Value == "data")
+            {
+                string result = getNextValueName();
+                sb.AppendLine($"    {result} = extractvalue %struct.string {baseVal}, 0");
+                return result;
+            }
+            if (gm.Member.Value == "length")
+            {
+                string result = getNextValueName();
+                sb.AppendLine($"    {result} = extractvalue %struct.string {baseVal}, 1");
+                return result;
+            }
+            throw new Exception($"Unknown string member: {gm.Member.Value}");
         }
         else
             throw new Exception("Get member for non struct type");
