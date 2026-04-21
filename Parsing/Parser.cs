@@ -2145,6 +2145,13 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 }
 
             case BinaryOperationTypes.Add:
+                if (left.ReturnType == StringType.Instance && right.ReturnType == StringType.Instance)
+                {
+                    returnType = StringType.Instance;
+                    break;
+                }
+                goto case BinaryOperationTypes.Subtract;
+
             case BinaryOperationTypes.Subtract:
             case BinaryOperationTypes.Multiply:
             case BinaryOperationTypes.Divide:
@@ -2275,6 +2282,9 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
         if (a == DefaultType.Bool && b == DefaultType.Bool)
             return DefaultType.Bool;
+
+        if (a == StringType.Instance && b == StringType.Instance)
+            return StringType.Instance;
 
         return null;
     }
@@ -3014,7 +3024,7 @@ if (lhs is MethodValue mv)
         executable = null;
         if (token.Type == TokenType.Literal)
         {
-            executable = getLiteralExecutable(token);
+            executable = getLiteralExecutable(token, ctx);
             return true;
         }
         if (token.Type != TokenType.Identifier)
@@ -3148,13 +3158,19 @@ if (lhs is MethodValue mv)
         return false;
     }
 
-    private Executable getLiteralExecutable(Token token)
+    private Executable getLiteralExecutable(Token token, Context ctx)
     {
         if (token is Token<char> charToken)
             return new Literal<char>(charToken.Value, DefaultType.Integer.Byte, token.Location);
 
         else if (token is Token<string> stringToken)
-            return new Literal<string>(stringToken.Value, new Pointer(DefaultType.Integer.Byte), token.Location);
+        {
+            if (stringToken.IsFString)
+            {
+                return parseFString(stringToken.Value, token.Location, ctx.NameCtx, ctx.FuncDef);
+            }
+            return new Literal<string>(stringToken.Value, StringType.Instance, token.Location);
+        }
 
         else if (token is Token<ulong> intToken)
             return new Literal<ulong>(intToken.Value, DefaultType.Integer.Lit, token.Location);
@@ -3166,6 +3182,71 @@ if (lhs is MethodValue mv)
             return new Literal<double>(doubleToken.Value, DefaultType.FloatingPoint.Lit, token.Location);
 
         throw new Exception($"Unknown literal type {token}");
+    }
+
+    private Executable parseFString(string fstring, Location loc, INameContainer nameCtx, FunctionDefinition funcDef)
+    {
+        List<Executable> parts = [];
+        
+        int pos = 0;
+        while (pos < fstring.Length)
+        {
+            int exprStart = fstring.IndexOf("{|", pos);
+            if (exprStart == -1)
+            {
+                if (pos < fstring.Length)
+                {
+                    string literalPart = fstring[pos..];
+                    if (literalPart.Contains("\x02"))
+                        literalPart = literalPart.Replace("\x02", "");
+                    if (literalPart.Length > 0)
+                        parts.Add(new Literal<string>(literalPart, StringType.Instance, loc));
+                }
+                break;
+            }
+            
+            if (exprStart > pos)
+            {
+                string literalPart = fstring[pos..exprStart];
+                if (literalPart.Length > 0)
+                    parts.Add(new Literal<string>(literalPart, StringType.Instance, loc));
+            }
+            
+            int exprEnd = fstring.IndexOf("|}", exprStart + 2);
+            if (exprEnd == -1)
+            {
+                errorer.Append("Unclosed expression in f-string", loc);
+                break;
+            }
+            
+            // exprEnd is position of | in |}
+            // Next char should be }
+            
+            string exprStr = fstring[(exprStart + 2)..exprEnd];
+            EnumerableReader<Token> exprTokens = new Token[] {
+                new Token<string>(exprStr, TokenType.Identifier, loc)
+            }.GetReader();
+            
+            Context exprCtx = new(exprTokens, nameCtx, funcDef);
+            Executable? expr = parseExpression(exprCtx, [Symbols.Semicolon], 0, false);
+            if (expr != null)
+                parts.Add(expr);
+            
+            pos = exprEnd + 2;
+        }
+        
+        if (parts.Count == 0)
+            return new Literal<string>("", StringType.Instance, loc);
+        
+        if (parts.Count == 1)
+            return parts[0];
+        
+        Executable result = parts[0];
+        for (int i = 1; i < parts.Count; i++)
+        {
+            result = new BinaryOperation(BinaryOperationTypes.Add, result, parts[i], StringType.Instance, loc);
+        }
+        return result;
     }
 
     private record Context(

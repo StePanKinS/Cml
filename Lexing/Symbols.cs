@@ -1,4 +1,4 @@
-﻿namespace Cml.Lexing;
+namespace Cml.Lexing;
 
 public enum Symbols
 {
@@ -48,6 +48,7 @@ public enum Symbols
     Comma,
     Colon,
     VerticalArrow,
+    Dollar,
 }
 
 // +, -, *, /, %, &, &&, |, ||, ^, ~, !, <<, >>, ==, !=, <=, >=, <, >, =, +=, -=, *=, /=, %=, <<=, >>=, &=, |=, ^=, --, ++, ., ,

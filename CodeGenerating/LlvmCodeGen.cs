@@ -8,6 +8,9 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
     private List<string> stringLiterals = [];
     private List<double> doubleLiterals = [];
     private bool needsStrcmp = false;
+    private bool needsStringConcat = false;
+    private bool needsStringToC = false;
+    private bool needsStringFromC = false;
     private int ifsCounter = 0;
     private int loopsCounter = 0;
     private int valueCounter = 0;
@@ -95,6 +98,8 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
             return getLlvmType(enumType.UnderlyingType);
         else if (type is InterfaceType it)
             return $"%interface.{it.Name}";
+        else if (type is StringType)
+            return "%struct.string";
         else
             throw new Exception($"Unknown type {type}");
     }
@@ -110,6 +115,9 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         sb.AppendLine("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"");
         sb.AppendLine();
 
+        sb.AppendLine("%struct.string = type { i8*, i64 }");
+        sb.AppendLine();
+
         generateStructDefinitions(sb);
         sb.AppendLine();
 
@@ -119,6 +127,22 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         if (needsStrcmp)
         {
             sb.AppendLine("declare i32 @strcmp(i8*, i8*)");
+            sb.AppendLine();
+        }
+
+        if (needsStringConcat)
+        {
+            sb.AppendLine("declare ptr @malloc(i64)");
+            sb.AppendLine("declare void @llvm.memcpy.p0i8.p0i8.i64(ptr, ptr, i64, i1)");
+            sb.AppendLine();
+        }
+
+        if (needsStringToC || needsStringFromC)
+        {
+            if (needsStringToC)
+                sb.AppendLine("declare i8* @string_to_c(%struct.string)");
+            if (needsStringFromC)
+                sb.AppendLine("declare %struct.string @string_from_c(i8*)");
             sb.AppendLine();
         }
 
@@ -348,10 +372,14 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
                 {
                     int scount = stringLiterals.Count;
                     stringLiterals.Add(stringLit.Value);
-                    string result = getNextValueName();
+                    string dataPtr = getNextValueName();
                     sb.AppendLine($"        ; String {stringLit.Location}");
-                    sb.AppendLine($"    {result} = getelementptr [{stringLit.Value.Length + 1} x i8], [{stringLit.Value.Length + 1} x i8]* @str{scount}, i64 0, i64 0");
-                    return result;
+                    sb.AppendLine($"    {dataPtr} = getelementptr [{stringLit.Value.Length + 1} x i8], [{stringLit.Value.Length + 1} x i8]* @str{scount}, i64 0, i64 0");
+                    string result = getNextValueName();
+                    sb.AppendLine($"    {result} = insertvalue %struct.string undef, i8* {dataPtr}, 0");
+                    string withLen = getNextValueName();
+                    sb.AppendLine($"    {withLen} = insertvalue %struct.string {result}, i64 {stringLit.Value.Length}, 1");
+                    return withLen;
                 }
 
             case Literal<ulong> intLit:
@@ -534,6 +562,12 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
                 }
 
             case BinaryOperationTypes.Add:
+                if (bo.Left.ReturnType is StringType && bo.Right.ReturnType is StringType)
+                {
+                    return generateStringConcat(bo, locals, sb);
+                }
+                goto case BinaryOperationTypes.Subtract;
+
             case BinaryOperationTypes.Subtract:
             case BinaryOperationTypes.Multiply:
             case BinaryOperationTypes.BitwiseAnd:
@@ -638,6 +672,47 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
             default:
                 throw new NotImplementedException($"Binary operation {bo.OperationType} not implemented");
         }
+    }
+
+    private string generateStringConcat(BinaryOperation bo, INameContainer locals, StringBuilder sb)
+    {
+        needsStringConcat = true;
+        string leftVal = generateExecutable(bo.Left, locals, sb);
+        string rightVal = generateExecutable(bo.Right, locals, sb);
+        
+        string leftData = getNextValueName();
+        string leftLen = getNextValueName();
+        sb.AppendLine($"    {leftData} = extractvalue %struct.string {leftVal}, 0");
+        sb.AppendLine($"    {leftLen} = extractvalue %struct.string {leftVal}, 1");
+        
+        string rightData = getNextValueName();
+        string rightLen = getNextValueName();
+        sb.AppendLine($"    {rightData} = extractvalue %struct.string {rightVal}, 0");
+        sb.AppendLine($"    {rightLen} = extractvalue %struct.string {rightVal}, 1");
+        
+        string totalLen = getNextValueName();
+        sb.AppendLine($"    {totalLen} = add i64 {leftLen}, {rightLen}");
+        
+        string allocResult = getNextValueName();
+        sb.AppendLine($"    {allocResult} = call ptr @malloc(i64 {totalLen})");
+        
+        sb.AppendLine($"    call void @llvm.memcpy.p0i8.p0i8.i64(ptr {allocResult}, ptr {leftData}, i64 {leftLen}, i1 false)");
+        
+        string rightDest = getNextValueName();
+        sb.AppendLine($"    {rightDest} = getelementptr i8, ptr {allocResult}, i64 {leftLen}");
+        
+        sb.AppendLine($"    call void @llvm.memcpy.p0i8.p0i8.i64(ptr {rightDest}, ptr {rightData}, i64 {rightLen}, i1 false)");
+        
+        string nullTerm = getNextValueName();
+        sb.AppendLine($"    {nullTerm} = getelementptr i8, ptr {allocResult}, i64 {totalLen}");
+        sb.AppendLine($"    store i8 0, ptr {nullTerm}");
+        
+        string result = getNextValueName();
+        sb.AppendLine($"    {result} = insertvalue %struct.string undef, ptr {allocResult}, 0");
+        string final = getNextValueName();
+        sb.AppendLine($"    {final} = insertvalue %struct.string {result}, i64 {totalLen}, 1");
+        
+        return final;
     }
 
     private int getMemberIndex(StructType st, string memberName)

@@ -7,6 +7,7 @@ public class Lexer(string path, string fileName)
     private string acum = "";
     private List<Token> tokens = null!;
     private LexerState state = LexerState.Default;
+    private bool expectRawString = false;
 
     private static readonly Dictionary<char, Symbols> singleSymbols = new()
     {
@@ -39,6 +40,7 @@ public class Lexer(string path, string fileName)
         { '%', Symbols.Percent         },
 
         { '!', Symbols.ExclamationMark },
+        { '$', Symbols.Dollar },
     };
 
     private static readonly Dictionary<(char, char), Symbols> doubleSymbols = new()
@@ -121,7 +123,13 @@ public class Lexer(string path, string fileName)
                     }
                     if (c == '"')
                     {
-                        state = LexerState.String;
+                        state = expectRawString ? LexerState.String : LexerState.FString;
+                        expectRawString = false;
+                        continue;
+                    }
+                    if (c == '$')
+                    {
+                        expectRawString = true;
                         continue;
                     }
                     if (c == '\'')
@@ -296,6 +304,7 @@ public class Lexer(string path, string fileName)
                     continue;
 
                 case LexerState.String:
+                case LexerState.FString:
                     lt.NextCol();
                     if (c == '"')
                     {
@@ -303,24 +312,39 @@ public class Lexer(string path, string fileName)
                         state = LexerState.Default;
                         continue;
                     }
-                    // if (c == '\n' || c == '\r')
-                    // {
-                    //     tokens.Add(new Token<string>($"Unclosed string `{acum}`", TokenType.Unknown, lt.GetLocation()));
-                    //     acum = "";
-                    //     goto case LexerState.Default;
-                    // }
+                    if (state == LexerState.FString && c == '{')
+                    {
+                        acum += "{|";
+                        continue;
+                    }
+                    if (state == LexerState.FString && c == '}')
+                    {
+                        acum += "|}";
+                        continue;
+                    }
                     if (c == '\\')
                     {
-                        state = LexerState.StringAfterBackslash;
+                        state = state == LexerState.FString 
+                            ? LexerState.FStringAfterBackslash 
+                            : LexerState.StringAfterBackslash;
                         continue;
                     }
                     acum += c;
                     continue;
 
-                case LexerState.StringAfterBackslash:
+                case LexerState.FStringAfterBackslash:
                     lt.NextCol();
                     if (stringEscaping.TryGetValue(c, out var d))
                         acum += d;
+                    else
+                        acum += c;
+                    state = LexerState.FString;
+                    continue;
+
+                case LexerState.StringAfterBackslash:
+                    lt.NextCol();
+                    if (stringEscaping.TryGetValue(c, out char escaped))
+                        acum += escaped;
                     else
                         acum += c;
                     state = LexerState.String;
@@ -366,7 +390,10 @@ public class Lexer(string path, string fileName)
                 break;
 
             case LexerState.String:
-                tokens.Add(new Token<string>(acum, TokenType.Literal, lt.GetLocation()));
+            case LexerState.FString:
+            case LexerState.FStringInBraces:
+                bool isFString = state == LexerState.FString || state == LexerState.FStringInBraces;
+                tokens.Add(new Token<string>(acum, TokenType.Literal, lt.GetLocation(), isFString));
                 break;
 
             case LexerState.Symbol:
@@ -394,6 +421,9 @@ public class Lexer(string path, string fileName)
 
         String,
         StringAfterBackslash,
+        FString,
+        FStringInBraces,
+        FStringAfterBackslash,
 
         Identifyer,
 

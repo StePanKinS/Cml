@@ -25,6 +25,7 @@ public abstract class Typ(string name, int size)
             DefaultType.Integer.ULong,
             DefaultType.FloatingPoint.Float,
             DefaultType.FloatingPoint.Double,
+            StringType.Instance,
         ];
 
         FileDefinition file = new("coreTypes", files, [], Location.Nowhere);
