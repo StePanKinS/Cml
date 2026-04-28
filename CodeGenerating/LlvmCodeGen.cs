@@ -1,5 +1,4 @@
 using System.Text;
-using Cml.Parsing.Executables;
 
 namespace Cml.CodeGeneration;
 
@@ -8,10 +7,6 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
     private IEnumerable<FileDefinition> Files = files;
     private List<string> stringLiterals = [];
     private List<double> doubleLiterals = [];
-    private bool needsStrcmp = false;
-    private bool needsStringConcat = false;
-    private bool needsStringToC = false;
-    public bool needsStringFromC = false;
     private int ifsCounter = 0;
     private int loopsCounter = 0;
     private int valueCounter = 0;
@@ -84,13 +79,10 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
             };
         else if (type == DefaultType.Bool)
             return "i1";
-        // else if (type == DefaultType.Char)
-        //     return "i8";
         else if (type == DefaultType.Void)
             return "void";
         else if (type is Pointer ptr)
             return $"ptr";
-        // return $"{getLlvmType(ptr.PointsTo)}*";
         else if (type is SizedArray arr)
             return $"[{arr.ElementCount} x {getLlvmType(arr.ElementType)}]";
         else if (type is StructType st)
@@ -98,12 +90,18 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         else if (type is EnumType enumType)
             return getLlvmType(enumType.UnderlyingType);
         else if (type is InterfaceType it)
-            return $"%interface.{it.Name}";
-        else if (type is StringType)
-            return "%struct.string";
+            return "{ ptr, ptr }"; // self, vtable
+        else if (type is MethodPointer)
+            return "{ ptr, ptr }"; // self, mehtod
         else
             throw new Exception($"Unknown type {type}");
     }
+
+    private string getVtableName(StructType st, InterfaceType it)
+        => $"@vtable.{st.Name}-{it.Name}";
+
+    private string getVtableType(InterfaceType it)
+        => $"[{it.Methods.Length} x ptr]";
 
     public string Generate()
         => topLevel();
@@ -116,40 +114,8 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         sb.AppendLine("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"");
         sb.AppendLine();
 
-        sb.AppendLine("%struct.string = type { i8*, i64 }");
-        sb.AppendLine();
-
-        generateStructDefinitions(sb);
-        sb.AppendLine();
-
         foreach (var file in Files)
             generateNamespace(file, sb);
-
-        if (needsStrcmp)
-        {
-            sb.AppendLine("declare i32 @strcmp(i8*, i8*)");
-            sb.AppendLine();
-        }
-
-        if (needsStringConcat)
-        {
-            sb.AppendLine("declare ptr @malloc(i64)");
-            sb.AppendLine("declare void @llvm.memcpy.p0i8.p0i8.i64(ptr, ptr, i64, i1)");
-            sb.AppendLine();
-        }
-
-        if (needsStringToC || needsStringFromC)
-        {
-            if (needsStringToC)
-                sb.AppendLine("declare i8* @string_to_c(%struct.string)");
-            if (needsStringFromC)
-            {
-                sb.AppendLine("declare i8* @malloc(i64)");
-                sb.AppendLine("declare i64 @strlen(i8*)");
-                sb.AppendLine("declare %struct.string @string_from_c(i8*)");
-            }
-            sb.AppendLine();
-        }
 
         generateStringGlobals(sb);
         sb.AppendLine();
@@ -160,92 +126,20 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         return sb.ToString();
     }
 
-    private void generateStructDefinitions(StringBuilder sb)
+    private void generateStructDefinition(StringBuilder sb, StructDefinition def)
     {
-        var structTypes = new HashSet<StructType>();
+        var structType = def.StructType;
+        var members = string.Join(", ", structType.Members.Select(m => getLlvmType(m.Type)));
+        sb.AppendLine($"%struct.{structType.Name} = type {{ {members} }}");
 
-        // Collect all struct types from all definitions
-        foreach (var file in Files)
-            collectStructTypesFromDefinition(file, structTypes);
-
-        foreach (var structType in structTypes)
+        foreach (var iface in structType.Interfaces)
         {
-            List<string> layoutMembers = [];
-            
-            // Add vtable pointer for each implemented interface
-            foreach (var iface in structType.Interfaces)
-            {
-                layoutMembers.Add("ptr");
-            }
-            
-            // Add actual struct members
-            foreach (var m in structType.Members)
-            {
-                layoutMembers.Add(getLlvmType(m.Type));
-            }
-            
-            var members = string.Join(", ", layoutMembers);
-            sb.AppendLine($"%struct.{structType.Name} = type {{ {members} }}");
-            
-            // Generate vtable globals for interfaces
-            for (int i = 0; i < structType.Interfaces.Length; i++)
-            {
-                var iface = structType.Interfaces[i];
-                var methodPtrs = new List<string>();
-                foreach (var im in iface.Methods)
-                {
-                    var methodFn = structType.GetMethod(im.Name);
-                    if (methodFn != null)
-                    {
-                        methodPtrs.Add($"ptr @{methodFn.FullName}");
-                    }
-                    else
-                    {
-                        methodPtrs.Add("ptr null");
-                    }
-                }
-                sb.AppendLine($"@VT_{structType.Name}_{i} = private constant [{iface.Methods.Length} x ptr] [{string.Join(", ", methodPtrs)}]");
-            }
+            sb.AppendLine($"{getVtableName(structType, iface)} = private unnamed_addr constant {getVtableType(iface)} [");
+            var methodPtrs = iface.Methods.Select(m => $"    ptr @{structType.GetMethod(m.name)!.FullName}");
+            sb.AppendLine(string.Join(",\n", methodPtrs));
+            sb.AppendLine("]");
+            sb.AppendLine();
         }
-    }
-
-    private void collectStructTypesFromDefinition(Definition def, HashSet<StructType> structs)
-    {
-        if (def is NamespaceDefinition nmsp)
-        {
-            foreach (var subdef in nmsp)
-                collectStructTypesFromDefinition(subdef, structs);
-        }
-        else if (def is StructDefinition sd)
-        {
-            if (!structs.Contains(sd.StructType))
-            {
-                structs.Add(sd.StructType);
-                foreach (var member in sd.StructType.Members)
-                    collectStructTypes(structs, member.Type);
-            }
-        }
-        else if (def is FunctionDefinition fn)
-        {
-            if (fn.ReturnType != DefaultType.Void)
-                collectStructTypes(structs, fn.ReturnType);
-            foreach (var arg in fn.Arguments.Arguments)
-                collectStructTypes(structs, arg.Type);
-        }
-    }
-
-    private void collectStructTypes(HashSet<StructType> structs, Typ type)
-    {
-        if (type is StructType st && !structs.Contains(st))
-        {
-            structs.Add(st);
-            foreach (var member in st.Members)
-                collectStructTypes(structs, member.Type);
-        }
-        else if (type is SizedArray arr)
-            collectStructTypes(structs, arr.ElementType);
-        else if (type is Pointer ptr)
-            collectStructTypes(structs, ptr.PointsTo);
     }
 
     private void generateStringGlobals(StringBuilder sb)
@@ -291,6 +185,7 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
                     break;
 
                 case StructDefinition sd:
+                    generateStructDefinition(sb, sd);
                     foreach (var method in sd.Methods)
                         generateFunction(method, sb);
                     break;
@@ -305,25 +200,27 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
     {
         if (fn.Modifyers.Contains(Keywords.External))
         {
-            // External function - just declare it
             string returnType = getLlvmType(fn.ReturnType);
             var paramTypes = string.Join(", ", fn.Arguments.Arguments.Select(arg => getLlvmType(arg.Type)));
             if (fn.IsVariadic)
                 paramTypes = paramTypes.Length == 0 ? "..." : $"{paramTypes}, ...";
             sb.AppendLine($"declare {returnType} @{fn.Name}({paramTypes})");
-            // sb.AppendLine($"@{fn.FullName} = alias {returnType}({paramTypes}), ptr @{fn.Name}");
             sb.AppendLine();
             return;
         }
 
         string retType = getLlvmType(fn.ReturnType);
-        var paramList = string.Join(", ", fn.Arguments.Arguments.Select((arg, idx) => $"{getLlvmType(arg.Type)} %arg{idx}"));
+
+        var paramStrings = fn.Arguments.Arguments.Select((arg, idx) => $"{getLlvmType(arg.Type)} %arg{idx}").ToList();
+        if (fn.MethodOf != null)
+            paramStrings.Insert(0, $"ptr %self");
+
+        var paramList = string.Join(", ", paramStrings);
 
         string linkage = fn.Modifyers.Contains(Keywords.Internal) ? "internal " : "";
         sb.AppendLine($"define {linkage}{retType} @{fn.FullName}({paramList}) {{");
         sb.AppendLine("entry:");
 
-        // Allocate space for arguments and local variables
         int argIdx = 0;
         foreach (var arg in fn.Arguments.Arguments)
         {
@@ -333,12 +230,10 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
             argIdx++;
         }
 
-        // Generate function body
         if (fn.Code == null)
             throw new Exception($"null code {fn}");
         generateExecutable(fn.Code, fn.Arguments, sb);
 
-        // Add implicit return if needed
         if (!fn.ContainsReturn)
         {
             if (fn.ReturnType != DefaultType.Void)
@@ -361,14 +256,11 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
             case FunctionCall fc:
                 return generateFunctionCall(fc, locals, sb);
 
-            case MethodCall mc:
-                return generateMethodCall(mc, locals, sb);
-
-            case Cml.Parsing.Executables.InterfaceMethodDispatch imd:
-                return generateInterfaceMethodDispatch(imd, locals, sb);
-
             case MethodValue mv:
                 return generateMethodValue(mv, locals, sb);
+
+            case VtableLookup vtl:
+                return generateVtableLookup(vtl, locals, sb);
 
             case Identifyer id:
                 return generateIdentifier(id, locals, sb);
@@ -377,27 +269,21 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
                 {
                     int scount = stringLiterals.Count;
                     stringLiterals.Add(stringLit.Value);
-                    string dataPtr = getNextValueName();
-                    sb.AppendLine($"        ; String {stringLit.Location}");
-                    sb.AppendLine($"    {dataPtr} = getelementptr [{stringLit.Value.Length + 1} x i8], [{stringLit.Value.Length + 1} x i8]* @str{scount}, i64 0, i64 0");
                     string result = getNextValueName();
-                    sb.AppendLine($"    {result} = insertvalue %struct.string undef, i8* {dataPtr}, 0");
-                    string withLen = getNextValueName();
-                    sb.AppendLine($"    {withLen} = insertvalue %struct.string {result}, i64 {stringLit.Value.Length}, 1");
-                    return withLen;
+                    sb.AppendLine($"        ; String {stringLit.Location}");
+                    sb.AppendLine($"    {result} = getelementptr [{stringLit.Value.Length + 1} x i8], [{stringLit.Value.Length + 1} x i8]* @str{scount}, i64 0, i64 0");
+                    return result;
                 }
 
             case Literal<ulong> intLit:
                 {
                     sb.AppendLine($"        ; Integer literal {intLit.Location}");
-                    // return $"{getLlvmType(intLit.ReturnType)} {intLit.Value}";
                     return $"{intLit.Value}";
                 }
 
             case Literal<bool> boolLit:
                 {
                     sb.AppendLine($"        ; Bool literal {boolLit.Location}");
-                    // return $"i1 {(boolLit.Value ? "1" : "0")}";
                     return boolLit.Value ? "1" : "0";
                 }
 
@@ -408,25 +294,6 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
                     string result = getNextValueName();
                     sb.AppendLine($"    {result} = load double, ptr @double{dcount} ; Literal {doubleLit.Location}");
                     return result;
-                }
-
-            case StringFromCExpr fromC:
-                {
-                    needsStringFromC = true;
-                    string ptrVal = generateExecutable(fromC.Arg, locals, sb);
-                    string len = getNextValueName();
-                    sb.AppendLine($"    {len} = call i64 @strlen(i8* {ptrVal})");
-                    string alloc = getNextValueName();
-                    sb.AppendLine($"    {alloc} = call ptr @malloc(i64 {len})");
-                    sb.AppendLine($"    call void @llvm.memcpy.p0i8.p0i8.i64(ptr {alloc}, ptr {ptrVal}, i64 {len}, i1 false)");
-                    string nullChar = getNextValueName();
-                    sb.AppendLine($"    {nullChar} = getelementptr i8, ptr {alloc}, i64 {len}");
-                    sb.AppendLine($"    store i8 0, ptr {nullChar}");
-                    string result = getNextValueName();
-                    sb.AppendLine($"    {result} = insertvalue %struct.string undef, ptr {alloc}, 0");
-                    string final = getNextValueName();
-                    sb.AppendLine($"    {final} = insertvalue %struct.string {result}, i64 {len}, 1");
-                    return final;
                 }
 
             case BinaryOperation bo:
@@ -443,7 +310,7 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
                         sb.AppendLine("    ret void");
                     else
                         sb.AppendLine($"    ret {getLlvmType(ret.Value.ReturnType)} {retVal}");
-                    return ""; // Not used after return
+                    return "";
                 }
 
             case ControlFlow cf:
@@ -525,22 +392,14 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
                     return ema.Value.ToString();
                 }
 
-            case EnumOfMethod eom:
-                return generateEnumOf(eom, locals, sb);
-
-            case EnumNameMethod enm:
-                return generateEnumName(enm, locals, sb);
-
             case StructLiteral sl:
                 return generateStructLiteral(sl, locals, sb);
 
-            // case StaticFunctionValue sfv:
-            //     {
-            //         sb.AppendLine($"    ; Static function value {sfv.Function.FullName}");
-            //         string result = getNextValueName();
-            //         sb.AppendLine($"    {result} = bitcast {getLlvmType(sfv.Function.ReturnType)} ()* @{sfv.Function.FullName} to i64");
-            //         return result;
-            //     }
+            case SelfAccess sa:
+                return "%self";
+
+            case Nop nop:
+                throw new Exception($"Nop encountered in codegen {nop.Location}");
 
             default:
                 throw new NotImplementedException($"Code generation for {exe.GetType().Name} not implemented");
@@ -552,14 +411,7 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         sb.AppendLine($"        ; CodeBlock {cb.Location}");
         foreach (var local in cb.Locals.Variables)
         {
-            if (local.Type is InterfaceType)
-            {
-                sb.AppendLine($"    %{local.FullName} = alloca ptr");
-            }
-            else
-            {
-                sb.AppendLine($"    %{local.FullName} = alloca {getLlvmType(local.Type)}");
-            }
+            sb.AppendLine($"    %{local.FullName} = alloca {getLlvmType(local.Type)}");
         }
 
         foreach (var executable in cb.Code)
@@ -577,21 +429,14 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
                 {
                     string rightVal = generateExecutable(bo.Right, locals, sb);
                     string leftPtr = generateLHS(bo.Left, locals, sb);
-                    string storeType = bo.Right.ReturnType is InterfaceType ? "ptr" : getLlvmType(bo.Right.ReturnType);
 
                     sb.AppendLine($"        ; Assign {bo.Location}");
-                    sb.AppendLine($"    store {storeType} {rightVal}, ptr {leftPtr}");
+                    sb.AppendLine($"    store {getLlvmType(bo.Right.ReturnType)} {rightVal}, ptr {leftPtr}");
 
                     return rightVal;
                 }
 
             case BinaryOperationTypes.Add:
-                if (bo.Left.ReturnType is StringType && bo.Right.ReturnType is StringType)
-                {
-                    return generateStringConcat(bo, locals, sb);
-                }
-                goto case BinaryOperationTypes.Subtract;
-
             case BinaryOperationTypes.Subtract:
             case BinaryOperationTypes.Multiply:
             case BinaryOperationTypes.BitwiseAnd:
@@ -698,47 +543,6 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         }
     }
 
-    private string generateStringConcat(BinaryOperation bo, INameContainer locals, StringBuilder sb)
-    {
-        needsStringConcat = true;
-        string leftVal = generateExecutable(bo.Left, locals, sb);
-        string rightVal = generateExecutable(bo.Right, locals, sb);
-        
-        string leftData = getNextValueName();
-        string leftLen = getNextValueName();
-        sb.AppendLine($"    {leftData} = extractvalue %struct.string {leftVal}, 0");
-        sb.AppendLine($"    {leftLen} = extractvalue %struct.string {leftVal}, 1");
-        
-        string rightData = getNextValueName();
-        string rightLen = getNextValueName();
-        sb.AppendLine($"    {rightData} = extractvalue %struct.string {rightVal}, 0");
-        sb.AppendLine($"    {rightLen} = extractvalue %struct.string {rightVal}, 1");
-        
-        string totalLen = getNextValueName();
-        sb.AppendLine($"    {totalLen} = add i64 {leftLen}, {rightLen}");
-        
-        string allocResult = getNextValueName();
-        sb.AppendLine($"    {allocResult} = call ptr @malloc(i64 {totalLen})");
-        
-        sb.AppendLine($"    call void @llvm.memcpy.p0i8.p0i8.i64(ptr {allocResult}, ptr {leftData}, i64 {leftLen}, i1 false)");
-        
-        string rightDest = getNextValueName();
-        sb.AppendLine($"    {rightDest} = getelementptr i8, ptr {allocResult}, i64 {leftLen}");
-        
-        sb.AppendLine($"    call void @llvm.memcpy.p0i8.p0i8.i64(ptr {rightDest}, ptr {rightData}, i64 {rightLen}, i1 false)");
-        
-        string nullTerm = getNextValueName();
-        sb.AppendLine($"    {nullTerm} = getelementptr i8, ptr {allocResult}, i64 {totalLen}");
-        sb.AppendLine($"    store i8 0, ptr {nullTerm}");
-        
-        string result = getNextValueName();
-        sb.AppendLine($"    {result} = insertvalue %struct.string undef, ptr {allocResult}, 0");
-        string final = getNextValueName();
-        sb.AppendLine($"    {final} = insertvalue %struct.string {result}, i64 {totalLen}, 1");
-        
-        return final;
-    }
-
     private int getMemberIndex(StructType st, string memberName)
     {
         for (int i = 0; i < st.Members.Length; i++)
@@ -762,11 +566,6 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
                 {
                     sb.AppendLine($"        ; GetReference {uo.Location}");
                     return generateLHS(uo.Operand, locals, sb);
-
-                    // if (uo.Operand is Identifyer ident && ident.Definition is VariableDefinition variable)
-                    //     return $"%{variable.FullName}";
-                    //
-                    // throw new Exception("Unsupported reference operation");
                 }
 
             case UnaryOperationTypes.Minus:
@@ -836,27 +635,7 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
     {
         Executable operand = uo.Operand;
         Typ target = uo.ReturnType;
-        Typ source  = operand.ReturnType;
-
-        if (source is StructType st && target is InterfaceType it)
-        {
-            if (!st.Interfaces.Contains(it))
-                throw new Exception($"Unknown cast {source} to {target}");
-            
-            sb.AppendLine($"        ; Cast struct to interface {uo.Location}");
-            string structVal = generateExecutable(operand, locals, sb);
-            
-            string castResult = getNextValueName();
-            
-            sb.AppendLine($"    {castResult} = alloca {getLlvmType(st)}");
-            sb.AppendLine($"    store {getLlvmType(st)} {structVal}, ptr {castResult}");
-            
-            int ifaceIdx = Array.IndexOf(st.Interfaces, it);
-            string vtableName = $"@VT_{st.Name}_{ifaceIdx}";
-            sb.AppendLine($"    store ptr {vtableName}, ptr {castResult}");
-            
-            return castResult;
-        }
+        Typ source = operand.ReturnType;
 
         if (source is SizedArray && target is Pointer)
         {
@@ -865,25 +644,17 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
             return array;
         }
 
-        if (source is EnumType fromEnum && target == fromEnum.UnderlyingType)
-        {
-            string enumVal = generateExecutable(operand, locals, sb);
-            sb.AppendLine($"        ; Cast {operand.ReturnType} to {target} {uo.Location}");
-            return enumVal;
-        }
-
-        if (target is EnumType toEnum && source == toEnum.UnderlyingType)
-        {
-            string underlyingVal = generateExecutable(operand, locals, sb);
-            sb.AppendLine($"        ; Cast {operand.ReturnType} to {target} {uo.Location}");
-            return underlyingVal;
-        }
-
         string operandVal = generateExecutable(operand, locals, sb);
         sb.AppendLine($"        ; Cast {operand.ReturnType} to {target} {uo.Location}");
 
         if (operand.ReturnType is Pointer && target is Pointer)
-            return operandVal; // ptr to ptr
+            return operandVal;
+
+        else if (source is EnumType fromEnum && target == fromEnum.UnderlyingType)
+            return operandVal;
+
+        else if (target is EnumType toEnum && source == toEnum.UnderlyingType)
+            return operandVal;
 
         string result = getNextValueName();
 
@@ -948,6 +719,22 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
             sb.AppendLine($"    {result} = load {getLlvmType(target)}, ptr {operandVal}");
             return result;
         }
+        else if (source is InterfaceType && target is Pointer)
+        {
+            sb.AppendLine($"    {result} = extractvalue {{ ptr, ptr }} {operandVal}, 0");
+            return result;
+        }
+        else if (source is Pointer ifacePtr && target is InterfaceType iface)
+        {
+            string undef = getNextValueName();
+            sb.AppendLine($"    {result} = insertvalue {{ ptr, ptr }} undef, ptr {operandVal}, 0");
+
+            if (ifacePtr.PointsTo is not StructType structType)
+                throw new Exception($"Can not cast `{source}` to interface {target}");
+
+            sb.AppendLine($"    {undef} = insertvalue {{ ptr, ptr }} {result}, ptr {getVtableName(structType, iface)}, 1");
+            return undef;
+        }
         else
             throw new Exception($"Unknown cast {operand.ReturnType} to {target}");
     }
@@ -963,117 +750,87 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
             args.Add((argVal, getLlvmType(arg.ReturnType)));
         }
 
-        string argList = string.Join(", ", args.Select(a => $"{a.type} {a.value}"));
-        string retType = getLlvmType(fc.ReturnType);
+        var argStrings = args.Select(a => $"{a.type} {a.value}").ToList();
 
-        // Get function pointer - FunctionPointer may be an Identifier with a FunctionDefinition
         sb.AppendLine($"        ; Func call");
-        string funcName = generateExecutable(fc.FunctionPointer, locals, sb);
-        // if (fc.FunctionPointer is Identifyer ident && ident.Definition is FunctionDefinition fnDef)
-        //     funcName = fnDef.FullName;
+        string funcPtr = generateExecutable(fc.FunctionPointer, locals, sb);
+
+        if (fc.FunctionPointer.ReturnType is not FunctionPointer)
+            throw new Exception($"Uncallable type {fc.FunctionPointer.ReturnType}");
+
+        if (fc.FunctionPointer.ReturnType is MethodPointer)
+        {
+            string self = getNextValueName();
+            string method = getNextValueName();
+
+            sb.AppendLine($"    {self} = extractvalue {getLlvmType(fc.FunctionPointer.ReturnType)} {funcPtr}, 0");
+            sb.AppendLine($"    {method} = extractvalue {getLlvmType(fc.FunctionPointer.ReturnType)} {funcPtr}, 1");
+
+            argStrings.Insert(0, $"ptr {self}");
+            funcPtr = method;
+        }
+
+        string argList = string.Join(", ", argStrings);
+        string retType = getLlvmType(fc.ReturnType);
 
         if (fc.ReturnType == DefaultType.Void)
         {
-            sb.AppendLine($"    call {retType} {funcName}({argList})");
+            sb.AppendLine($"    call {retType} {funcPtr}({argList})");
             return "";
         }
         else
         {
             string result = getNextValueName();
-            sb.AppendLine($"    {result} = call {retType} {funcName}({argList})");
+            sb.AppendLine($"    {result} = call {retType} {funcPtr}({argList})");
             return result;
         }
     }
 
-    private string generateMethodCall(MethodCall mc, INameContainer locals, StringBuilder sb)
-    {
-        sb.AppendLine($"        ; Method call {mc.Location}");
-        
-        if (mc.Operand?.ReturnType is StringType && mc.Method != null)
-        {
-            if (mc.Method.Name == "to_c")
-            {
-                needsStringToC = true;
-                string strVal = generateExecutable(mc.Operand, locals, sb);
-                string data = getNextValueName();
-                sb.AppendLine($"    {data} = extractvalue %struct.string {strVal}, 0");
-                return data;
-            }
-            if (mc.Method.Name == "from_c")
-            {
-                needsStringFromC = true;
-                string ptrVal = generateExecutable(mc.Args[0], locals, sb);
-                string len = getNextValueName();
-                sb.AppendLine($"    {len} = call i64 @strlen(i8* {ptrVal})");
-                string allocResult = getNextValueName();
-                sb.AppendLine($"    {allocResult} = call ptr @malloc(i64 {len})");
-                sb.AppendLine($"    call void @llvm.memcpy.p0i8.p0i8.i64(ptr {allocResult}, ptr {ptrVal}, i64 {len}, i1 false)");
-                string result = getNextValueName();
-                sb.AppendLine($"    {result} = insertvalue %struct.string undef, ptr {allocResult}, 0");
-                string final = getNextValueName();
-                sb.AppendLine($"    {final} = insertvalue %struct.string {result}, i64 {len}, 1");
-                return final;
-            }
-        }
-        
-        FunctionCall fc = new(new Identifyer(mc.Method, new FunctionPointer(mc.Method), mc.Location), mc.Args, mc.ReturnType, mc.Location);
-        return generateFunctionCall(fc, locals, sb);
-    }
-
-    private string generateInterfaceMethodDispatch(Cml.Parsing.Executables.InterfaceMethodDispatch imd, INameContainer locals, StringBuilder sb)
-    {
-        sb.AppendLine($"        ; Interface method dispatch {imd.Location}");
-        
-        string receiver = generateExecutable(imd.Args[0], locals, sb);
-        
-        // receiver is a ptr to a struct with vtable at offset 0
-        // Load vtable pointer from first field of struct
-        string vtablePtr = getNextValueName();
-        sb.AppendLine($"    {vtablePtr} = getelementptr inbounds ptr, ptr {receiver}, i32 0");
-        
-        string vtable = getNextValueName();
-        sb.AppendLine($"    {vtable} = load ptr, ptr {vtablePtr}");
-
-        int methodIdx = imd.MethodIndex;
-        string funcPtr = getNextValueName();
-        sb.AppendLine($"    {funcPtr} = getelementptr [1 x ptr], ptr {vtable}, i64 0, i32 {methodIdx}");
-        
-        string fn = getNextValueName();
-        sb.AppendLine($"    {fn} = load ptr, ptr {funcPtr}");
-        
-        // Build argument list with receiver as first argument
-        List<string> argValues = [ $"ptr {receiver}" ];
-        foreach (var arg in imd.Args.Skip(1))
-        {
-            string argVal = generateExecutable(arg, locals, sb);
-            argValues.Add($"{getLlvmType(arg.ReturnType)} {argVal}");
-        }
-        string argList = string.Join(", ", argValues);
-        
-        sb.AppendLine($"    call {getLlvmType(imd.ReturnType)} {fn}({argList})");
-        
-        return "";
-    }
-
+    // returns struct of { self, method ptr }
     private string generateMethodValue(MethodValue mv, INameContainer locals, StringBuilder sb)
     {
+        string op = generateExecutable(mv.Operand, locals, sb);
+
         sb.AppendLine($"        ; Method value {mv.Location}");
-        
-        if (mv.Operand?.ReturnType is StringType)
-        {
-            if (mv.Method != null && mv.Method.Name == "to_c")
-            {
-                needsStringToC = true;
-                string strVal = generateExecutable(mv.Operand, locals, sb);
-                string data = getNextValueName();
-                sb.AppendLine($"    {data} = extractvalue %struct.string {strVal}, 0");
-                return data;
-            }
-        }
-        
+
+        string funcName;
         if (mv.Method.Modifyers.Contains(Keywords.External))
-            return $"@{mv.Method.Name}";
-        return $"@{mv.Method.FullName}";
+            funcName = $"@{mv.Method.Name}";
+        else
+            funcName = $"@{mv.Method.FullName}";
+
+        string opInsert = getNextValueName();
+        string funcInsert = getNextValueName();
+
+        sb.AppendLine($"    {opInsert} = insertvalue {getLlvmType(mv.ReturnType)} undef, ptr {op}, 0");
+        sb.AppendLine($"    {funcInsert} = insertvalue {getLlvmType(mv.ReturnType)} {opInsert}, ptr {funcName}, 1");
+
+        return funcInsert;
+    }
+
+    private string generateVtableLookup(VtableLookup vl, INameContainer locals, StringBuilder sb)
+    {
+        string op = generateExecutable(vl.Operand, locals, sb);
+
+        sb.AppendLine($"        ; Vtable lookup {vl.Location}");
+
+        string vtablePtr = getNextValueName();
+        string vtableVal = getNextValueName();
+        string selfPtr = getNextValueName();
+        string methodPtr = getNextValueName();
+        string selfInsert = getNextValueName();
+        string fnInsert = getNextValueName();
+
+        string retType = getLlvmType(vl.ReturnType);
+
+        sb.AppendLine($"    {vtablePtr} = extractvalue {getLlvmType(vl.Operand.ReturnType)} {op}, 1");
+        sb.AppendLine($"    {vtableVal} = load {getVtableType(vl.InterfaceType)}, ptr {vtablePtr}");
+        sb.AppendLine($"    {selfPtr} = extractvalue {getLlvmType(vl.Operand.ReturnType)} {op}, 0");
+        sb.AppendLine($"    {methodPtr} = extractvalue {getVtableType(vl.InterfaceType)} {vtableVal}, {vl.Index}");
+        sb.AppendLine($"    {selfInsert} = insertvalue {retType} undef, ptr {selfPtr}, 0");
+        sb.AppendLine($"    {fnInsert} = insertvalue {retType} {selfInsert}, ptr {methodPtr}, 1");
+
+        return fnInsert;
     }
 
     private string generateIdentifier(Identifyer id, INameContainer locals, StringBuilder sb)
@@ -1082,9 +839,8 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
 
         if (id.Definition is VariableDefinition varDef)
         {
-            // string allocName = localVariables[varDef.Name];
             string result = getNextValueName();
-            string loadType = varDef.Type is InterfaceType ? "ptr" : getLlvmType(varDef.Type);
+            string loadType = getLlvmType(varDef.Type);
             sb.AppendLine($"    {result} = load {loadType}, ptr %{varDef.FullName}");
             return result;
         }
@@ -1107,31 +863,11 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         if (gm.Operand.ReturnType is StructType st)
         {
             int memberIdx = getMemberIndex(st, gm.Member.Value);
-            // var memberType = st.GetStructMember(gm.Member.Value);
-            int vtableOffset = st.Interfaces.Length;
-            memberIdx += vtableOffset;
 
             string result = getNextValueName();
-            // sb.AppendLine($"    {elemPtr} = getelementptr {getLlvmType(st)}, ptr {basePtr}, i32 0, i32 {memberIdx}");
             sb.AppendLine($"    {result} = extractvalue {getLlvmType(gm.Operand.ReturnType)} {baseVal}, {memberIdx}");
 
             return result;
-        }
-        else if (gm.Operand.ReturnType is StringType)
-        {
-            if (gm.Member.Value == "data")
-            {
-                string result = getNextValueName();
-                sb.AppendLine($"    {result} = extractvalue %struct.string {baseVal}, 0");
-                return result;
-            }
-            if (gm.Member.Value == "length")
-            {
-                string result = getNextValueName();
-                sb.AppendLine($"    {result} = extractvalue %struct.string {baseVal}, 1");
-                return result;
-            }
-            throw new Exception($"Unknown string member: {gm.Member.Value}");
         }
         else
             throw new Exception("Get member for non struct type");
@@ -1152,25 +888,6 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         return result;
     }
 
-    // private string generateGetElementAddress(GetElement ge, INameContainer locals, StringBuilder sb)
-    // {
-    //     string indexVal = generateExecutable(ge.Index, locals, sb);
-    //     string basePtr = generateExecutable(ge.Operand, locals, sb);
-    //
-    //     Typ elementType;
-    //     if (ge.Operand.ReturnType is SizedArray sa)
-    //         elementType = sa.ElementType;
-    //     else if (ge.Operand.ReturnType is Pointer p)
-    //         elementType = p.PointsTo;
-    //     else
-    //         throw new Exception("Invalid array/pointer access");
-    //
-    //     string elemPtr = getNextValueName();
-    //     sb.AppendLine($"        ; Get element address {ge.Operand} {ge.Location}");
-    //     sb.AppendLine($"    {elemPtr} = getelementptr {getLlvmType(elementType)}, ptr {basePtr}, i64 {indexVal}");
-    //     return elemPtr;
-    // }
-
     private string generateStructLiteral(StructLiteral sl, INameContainer locals, StringBuilder sb)
     {
         sb.AppendLine($"    ; Struct literal {sl.StructType.Name}");
@@ -1179,114 +896,18 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         if (sl.FieldValues.Length == 0)
             return "zeroinitializer";
 
-        int vtableOffset = sl.StructType.Interfaces.Length;
-        
         string current;
-        
-        if (vtableOffset > 0)
-        {
-            current = getNextValueName();
-            sb.AppendLine($"    {current} = insertvalue {structType} undef, ptr null, 0");
-        }
-        else
-        {
-            current = "undef";
-        }
-        
-        string firstValue = generateExecutable(sl.FieldValues[0], locals, sb);
-        string next = getNextValueName();
-        sb.AppendLine($"    {next} = insertvalue {structType} {current}, {getLlvmType(sl.StructType.Members[0].Type)} {firstValue}, {vtableOffset}");
+        string next = "undef";
 
-        for (int i = 1; i < sl.FieldValues.Length; i++)
+        for (int i = 0; i < sl.FieldValues.Length; i++)
         {
             string fieldVal = generateExecutable(sl.FieldValues[i], locals, sb);
-            string nextI = getNextValueName();
-            sb.AppendLine($"    {nextI} = insertvalue {structType} {next}, {getLlvmType(sl.StructType.Members[i].Type)} {fieldVal}, {vtableOffset + i}");
             current = next;
-            next = nextI;
+            next = getNextValueName();
+            sb.AppendLine($"    {next} = insertvalue {structType} {current}, {getLlvmType(sl.StructType.Members[i].Type)} {fieldVal}, {i}");
         }
 
         return next;
-    }
-
-    private string generateEnumOf(EnumOfMethod eom, INameContainer locals, StringBuilder sb)
-    {
-        needsStrcmp = true;
-        string namePtr = generateExecutable(eom.NameArgument, locals, sb);
-        sb.AppendLine($"    ; Enum.of {eom.EnumType.Name}");
-
-        string enumType = getLlvmType(eom.EnumType);
-        int endLabel = ifsCounter++;
-        string result = getNextValueName();
-        sb.AppendLine($"    {result} = alloca {enumType}");
-        sb.AppendLine($"    store {enumType} 0, ptr {result}");
-        if (eom.EnumType.Members.Length != 0)
-            sb.AppendLine($"    br label %enum_of_check_{endLabel}_0");
-
-        for (int i = 0; i < eom.EnumType.Members.Length; i++)
-        {
-            var member = eom.EnumType.Members[i];
-            string checkLabel = $"enum_of_check_{endLabel}_{i}";
-            string matchLabel = $"enum_of_match_{endLabel}_{i}";
-            string nextLabel = i == eom.EnumType.Members.Length - 1 ? $"enum_of_end_{endLabel}" : $"enum_of_check_{endLabel}_{i + 1}";
-            sb.AppendLine($"{checkLabel}:");
-
-            string memberNamePtr = getNextValueName();
-            int strIdx = stringLiterals.Count;
-            stringLiterals.Add(member.Name);
-            sb.AppendLine($"    {memberNamePtr} = getelementptr [{member.Name.Length + 1} x i8], [{member.Name.Length + 1} x i8]* @str{strIdx}, i64 0, i64 0");
-
-            string cmpResult = getNextValueName();
-            sb.AppendLine($"    {cmpResult} = call i32 @strcmp(i8* {namePtr}, i8* {memberNamePtr})");
-            string isMatch = getNextValueName();
-            sb.AppendLine($"    {isMatch} = icmp eq i32 {cmpResult}, 0");
-            sb.AppendLine($"    br i1 {isMatch}, label %{matchLabel}, label %{nextLabel}");
-            sb.AppendLine($"{matchLabel}:");
-            sb.AppendLine($"    store {enumType} {member.Value}, ptr {result}");
-            sb.AppendLine($"    br label %enum_of_end_{endLabel}");
-        }
-
-        sb.AppendLine($"enum_of_end_{endLabel}:");
-        string loadResult = getNextValueName();
-        sb.AppendLine($"    {loadResult} = load {enumType}, ptr {result}");
-        return loadResult;
-    }
-
-    private string generateEnumName(EnumNameMethod enm, INameContainer locals, StringBuilder sb)
-    {
-        string enumVal = generateExecutable(enm.EnumValue, locals, sb);
-        sb.AppendLine($"    ; Enum.name {enm.EnumType.Name}");
-
-        string enumType = getLlvmType(enm.EnumType);
-        int endLabel = ifsCounter++;
-        string result = getNextValueName();
-        sb.AppendLine($"    {result} = alloca i8*");
-        sb.AppendLine($"    store i8* null, ptr {result}");
-        if (enm.EnumType.Members.Length != 0)
-            sb.AppendLine($"    br label %enum_name_check_{endLabel}_0");
-
-        for (int i = 0; i < enm.EnumType.Members.Length; i++)
-        {
-            var member = enm.EnumType.Members[i];
-            string checkLabel = $"enum_name_check_{endLabel}_{i}";
-            string matchLabel = $"enum_name_match_{endLabel}_{i}";
-            string nextLabel = i == enm.EnumType.Members.Length - 1 ? $"enum_name_end_{endLabel}" : $"enum_name_check_{endLabel}_{i + 1}";
-            sb.AppendLine($"{checkLabel}:");
-
-            int strIdx = stringLiterals.Count;
-            stringLiterals.Add(member.Name);
-            string cmpResult = getNextValueName();
-            sb.AppendLine($"    {cmpResult} = icmp eq {enumType} {enumVal}, {member.Value}");
-            sb.AppendLine($"    br i1 {cmpResult}, label %{matchLabel}, label %{nextLabel}");
-            sb.AppendLine($"{matchLabel}:");
-            sb.AppendLine($"    store i8* getelementptr inbounds ([{member.Name.Length + 1} x i8], [{member.Name.Length + 1} x i8]* @str{strIdx}, i32 0, i32 0), ptr {result}");
-            sb.AppendLine($"    br label %enum_name_end_{endLabel}");
-        }
-
-        sb.AppendLine($"enum_name_end_{endLabel}:");
-        string loadResult = getNextValueName();
-        sb.AppendLine($"    {loadResult} = load i8*, i8** {result}");
-        return loadResult;
     }
 
     private string generateLHS(Executable executable, INameContainer locals, StringBuilder sb)
@@ -1320,8 +941,7 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
                         int memberIdx = getMemberIndex(st, gm.Member.Value);
 
                         string elemPtr = getNextValueName();
-                        sb.AppendLine($"    {elemPtr} = getelementptr {getLlvmType(st)}, ptr {
-                                basePtr}, i32 0, i32 {memberIdx}");
+                        sb.AppendLine($"    {elemPtr} = getelementptr {getLlvmType(st)}, ptr {basePtr}, i32 0, i32 {memberIdx}");
 
                         returnVal = elemPtr;
                     }

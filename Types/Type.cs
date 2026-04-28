@@ -13,7 +13,6 @@ public abstract class Typ(string name, int size)
     {
         var types = (IEnumerable<Typ>)[
             DefaultType.Void,
-            // DefaultType.Char,
             DefaultType.Bool,
             DefaultType.Integer.SByte,
             DefaultType.Integer.Short,
@@ -25,7 +24,6 @@ public abstract class Typ(string name, int size)
             DefaultType.Integer.ULong,
             DefaultType.FloatingPoint.Float,
             DefaultType.FloatingPoint.Double,
-            StringType.Instance,
         ];
 
         FileDefinition file = new("coreTypes", files, [], Location.Nowhere);

@@ -7,7 +7,6 @@ public class Lexer(string path, string fileName)
     private string acum = "";
     private List<Token> tokens = null!;
     private LexerState state = LexerState.Default;
-    private bool expectRawString = false;
 
     private static readonly Dictionary<char, Symbols> singleSymbols = new()
     {
@@ -123,13 +122,7 @@ public class Lexer(string path, string fileName)
                     }
                     if (c == '"')
                     {
-                        state = expectRawString ? LexerState.String : LexerState.FString;
-                        expectRawString = false;
-                        continue;
-                    }
-                    if (c == '$')
-                    {
-                        expectRawString = true;
+                        state = LexerState.String;
                         continue;
                     }
                     if (c == '\'')
@@ -304,7 +297,6 @@ public class Lexer(string path, string fileName)
                     continue;
 
                 case LexerState.String:
-                case LexerState.FString:
                     lt.NextCol();
                     if (c == '"')
                     {
@@ -312,33 +304,12 @@ public class Lexer(string path, string fileName)
                         state = LexerState.Default;
                         continue;
                     }
-                    if (state == LexerState.FString && c == '{')
-                    {
-                        acum += "{|";
-                        continue;
-                    }
-                    if (state == LexerState.FString && c == '}')
-                    {
-                        acum += "|}";
-                        continue;
-                    }
                     if (c == '\\')
                     {
-                        state = state == LexerState.FString 
-                            ? LexerState.FStringAfterBackslash 
-                            : LexerState.StringAfterBackslash;
+                        state = LexerState.StringAfterBackslash;
                         continue;
                     }
                     acum += c;
-                    continue;
-
-                case LexerState.FStringAfterBackslash:
-                    lt.NextCol();
-                    if (stringEscaping.TryGetValue(c, out var d))
-                        acum += d;
-                    else
-                        acum += c;
-                    state = LexerState.FString;
                     continue;
 
                 case LexerState.StringAfterBackslash:
@@ -355,7 +326,7 @@ public class Lexer(string path, string fileName)
             }
         }
     }
-    
+
     private void endAcum()
     {
         if (acum.Length == 0)
@@ -390,10 +361,7 @@ public class Lexer(string path, string fileName)
                 break;
 
             case LexerState.String:
-            case LexerState.FString:
-            case LexerState.FStringInBraces:
-                bool isFString = state == LexerState.FString || state == LexerState.FStringInBraces;
-                tokens.Add(new Token<string>(acum, TokenType.Literal, lt.GetLocation(), isFString));
+                tokens.Add(new Token<string>(acum, TokenType.Literal, lt.GetLocation()));
                 break;
 
             case LexerState.Symbol:
@@ -421,9 +389,6 @@ public class Lexer(string path, string fileName)
 
         String,
         StringAfterBackslash,
-        FString,
-        FStringInBraces,
-        FStringAfterBackslash,
 
         Identifyer,
 
@@ -433,7 +398,7 @@ public class Lexer(string path, string fileName)
         CarretReturn,
         Char,
         Symbol,
-        
+
         SingleLineComment,
         MultiLineComment,
         MultiLineCommentAfterStar,

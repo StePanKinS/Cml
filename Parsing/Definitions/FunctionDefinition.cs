@@ -4,7 +4,8 @@ public class FunctionDefinition(
     string name,
     Token[] retTypeName,
     Definition parent,
-    Keywords[] modifyers
+    Keywords[] modifyers,
+    Typ? methodOf = null
 ) : Definition(name, parent, modifyers, Location.Nowhere)
 {
     public Token[] ReturnTypeName = retTypeName;
@@ -12,6 +13,8 @@ public class FunctionDefinition(
 
     public FunctionArguments Arguments = null!;
     public bool IsVariadic = false;
+
+    public Typ? MethodOf = methodOf;
 
     public Token[] UnparsedCode = null!;
     public Executable? Code = null;

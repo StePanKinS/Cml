@@ -8,19 +8,7 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
     public List<VariableDefinition> Arguments = [];
     public FunctionDefinition ParentFunction = func;
 
-    private int size = -1;
-    public int Size
-    {
-        get
-        {
-            if (size == -1)
-            {
-                var (intCount, floatCount, _) = GetClassCount();
-                size = (intCount + floatCount) * 8;
-            }
-            return size;
-        }
-    }
+    public int Size => 0;
 
     public bool Append(Definition definition)
     {
@@ -36,9 +24,9 @@ public class FunctionArguments(INameContainer parent, FunctionDefinition func) :
         return true;
     }
 
-public bool Append(Token[] type, Token<string> name)
-        => Append(new VariableDefinition(name.Value, type, 
-            ParentFunction, [], new Location(type.TokensLocation(), name.Location)));
+    public bool Append(Token[] type, Token<string> name)
+            => Append(new VariableDefinition(name.Value, type,
+                ParentFunction, [], new Location(type.TokensLocation(), name.Location)));
 
     public bool TryGetName(string name, [MaybeNullWhen(false)] out Definition definition)
     {
@@ -55,40 +43,6 @@ public bool Append(Token[] type, Token<string> name)
             throw new Exception($"Found several `{name}` names");
 
         return Parent.TryGetName(name, out definition);
-    }
-
-    public (int intCount, int floatCount, int stackCount) GetClassCount()
-        => GetClassCount(Arguments.Select(i => i.Type));
-
-    public static (int intCount, int floatCount, int stackCount) GetClassCount(IEnumerable<Typ> types)
-    {
-        int intCount = 0;
-        int floatCount = 0;
-        int stackCount = 0;
-
-        foreach (var i in types)
-        {
-            if (i is DefaultType.Integer
-                || i is Pointer
-                || i is EnumType)
-            {
-                if (intCount < 6)
-                    intCount++;
-                else
-                    stackCount++;
-            }
-            else if (i is DefaultType.FloatingPoint)
-            {
-                if (floatCount < 8)
-                    floatCount++;
-                else
-                    stackCount++;
-            }
-            else
-                throw new Exception($"Unsupported type {i} in generateFunctionCall");
-        }
-
-        return (intCount, floatCount, stackCount);
     }
 
     public bool TryGetType(string name, [MaybeNullWhen(false)] out Typ type)

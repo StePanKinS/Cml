@@ -104,28 +104,18 @@ public record NamespaceValue
 public record MethodValue
 (
     Executable Operand,
-    FunctionDefinition? Method,
+    FunctionDefinition Method,
     Location Location
-) : Executable(Method != null ? new FunctionPointer(Method) : DefaultType.Void, Location);
+) : Executable(new MethodPointer(Operand, Method), Location);
 
-public record MethodCall
+public record VtableLookup
 (
     Executable Operand,
-    FunctionDefinition? Method,
-    Executable[] Args,
-    Typ ReturnType,
+    int Index,
+    FunctionPointer Method,
+    InterfaceType InterfaceType,
     Location Location
-) : Executable(ReturnType, Location);
-
-public record InterfaceMethodDispatch
-(
-    Executable Operand,
-    InterfaceType.InterfaceMethod Method,
-    int MethodIndex,
-    Executable[] Args,
-    Typ ReturnType,
-    Location Location
-) : Executable(ReturnType, Location);
+) : Executable(new MethodPointer(Operand, Method), Location);
 
 public record TypeValue
 (
@@ -171,23 +161,16 @@ public record StructLiteral
     Location Location
 ) : Executable(StructType, Location);
 
-public record InterfaceMethodCall
+public record EnumMemberAccess
 (
-    Executable Operand,
-    InterfaceType.InterfaceMethod Method,
-    int MethodIndex,
+    EnumType EnumType,
+    string MemberName,
+    long Value,
     Location Location
-) : Executable(Method.ReturnType, Location);
+) : Executable(EnumType, Location);
 
-public record StringFromCExpr
+public record SelfAccess
 (
-    Executable Arg,
+    Typ typ,
     Location Location
-) : Executable(StringType.Instance, Location);
-
-// public record StaticFunctionValue
-// (
-//     FunctionDefinition Function,
-//     Location Location
-// ) : Executable(new FunctionPointer(Function), Location);
-
+) : Executable(new Pointer(typ), Location);

@@ -12,6 +12,7 @@ public enum Keywords
     Namespace,
     External,
     Internal,
+    // Export,
     Enum,
     True,
     False,
@@ -20,5 +21,5 @@ public enum Keywords
     Loop,
     Var,
     Interface,
-    Implements,
+    Self,
 }

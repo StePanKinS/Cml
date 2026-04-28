@@ -35,6 +35,9 @@ public class StructType(string name, StructType.StructMember[] members, Function
         return null;
     }
 
+    public bool Inherits(InterfaceType iface)
+        => Interfaces.Contains(iface);
+
     public override bool Equals(object? obj)
     {
         if (obj is not StructType sd)
