@@ -17,4 +17,5 @@ public class VariableDefinition : Definition
 
     public Token[]? TypeName;
     public Typ Type;
+    public bool Global = false;
 }

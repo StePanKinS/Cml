@@ -190,6 +190,10 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
                         generateFunction(method, sb);
                     break;
 
+                case VariableDefinition vd:
+                    generateVariableDefinition(vd, sb);
+                    break;
+
                 default:
                     throw new Exception($"Unknown def: {def}");
             }
@@ -243,6 +247,19 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         }
 
         sb.AppendLine("}");
+        sb.AppendLine();
+    }
+
+    private void generateVariableDefinition(VariableDefinition vd, StringBuilder sb)
+    {
+        if (vd.Modifyers.Contains(Keywords.External))
+        {
+            sb.Append($"@{vd.FullName} = external global {getLlvmType(vd.Type)}");
+        }
+        else
+        {
+            sb.Append($"@{vd.FullName} = global {getLlvmType(vd.Type)} undef");
+        }
         sb.AppendLine();
     }
 
@@ -841,7 +858,8 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         {
             string result = getNextValueName();
             string loadType = getLlvmType(varDef.Type);
-            sb.AppendLine($"    {result} = load {loadType}, ptr %{varDef.FullName}");
+            string locality = varDef.Global ? "@" : "%";
+            sb.AppendLine($"    {result} = load {loadType}, ptr {locality}{varDef.FullName}");
             return result;
         }
         else if (id.Definition is FunctionDefinition fnDef)
@@ -917,8 +935,11 @@ public class LlvmCodeGen(IEnumerable<FileDefinition> files)
         {
             case Identifyer ident:
                 sb.AppendLine($"        ; lhs Identifyer {ident.Location}");
-                if (ident.Definition is VariableDefinition)
-                    returnVal = $"%{ident.Definition.FullName}";
+                if (ident.Definition is VariableDefinition varDef)
+                {
+                    string locality = varDef.Global ? "@" : "%";
+                    returnVal = $"{locality}{varDef.FullName}";
+                }
                 else if (ident.Definition is FunctionDefinition)
                 {
                     if (ident.Definition.Modifyers.Contains(Keywords.External))

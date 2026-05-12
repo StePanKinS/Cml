@@ -1,3 +1,4 @@
+using System.CommandLine;
 using System.Diagnostics;
 
 
@@ -5,7 +6,6 @@ namespace Cml.Parsing;
 
 public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 {
-    public const Symbols StructMemberSeparator = Symbols.Comma;
     private static readonly IEnumerable<Keywords> Modifyers = [Keywords.External, Keywords.Internal];
     private static readonly Dictionary<Symbols, Symbols> BracketPairs = new()
     {
@@ -233,6 +233,15 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 }
             }
         }
+        else if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CurlyOpen)
+        {
+            er.Read();
+        }
+        else
+        {
+            errorer.Append($"Expected `:` or `{{` after struct name, got {token}", token.Location);
+            return;
+        }
 
         t = token;
         List<(Token[] type, Token<string> name)> members = [];
@@ -267,7 +276,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             if (!er.Peek(out token))
             {
                 Location loc = new(kwdToken.Location, memName.Location);
-                errorer.Append($"Expected {StructMemberSeparator.ToString().ToLower()} or `(`. Got file end`", loc);
+                errorer.Append($"Expected `;` or `(`. Got file end`", loc);
                 return;
             }
 
@@ -276,15 +285,6 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 FunctionDefinition? fd = readFunctionDefinition(er, nmsp, [], memType, memName);
                 if (fd != null)
                     methods.Add(fd);
-
-                // After a method, a separator is optional
-                if (er.Peek(out t)
-                    && t.Type == TokenType.Symbol
-                    && (
-                        ((Token<Symbols>)t).Value == StructMemberSeparator
-                        || ((Token<Symbols>)t).Value == Symbols.Semicolon)
-                    )
-                    er.Read(out _);
 
                 continue;
             }
@@ -297,7 +297,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             if (!er.Peek(out token))
             {
                 Location loc = new(kwdToken.Location, memName.Location);
-                errorer.Append($"Expected {StructMemberSeparator.ToString().ToLower()} or `}}`. Got file end`", loc);
+                errorer.Append($"Expected `;` or `}}`. Got file end`", loc);
                 return;
             }
 
@@ -307,18 +307,13 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 break;
             }
 
-            if (token.Type == TokenType.Symbol && (((Token<Symbols>)token).Value == StructMemberSeparator || ((Token<Symbols>)token).Value == Symbols.Semicolon))
+            if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.Semicolon)
             {
                 er.Read(out _); // consume the separator
                 continue;
             }
 
-            if (token.Type == TokenType.Identifier)
-            {
-                continue;
-            }
-
-            errorer.Append($"Expected {StructMemberSeparator.ToString().ToLower()}, `}}`, or next member. Got {token}`", token.Location);
+            errorer.Append($"Expected `;` or `}}`. Got {token}`", token.Location);
             return;
         }
 
@@ -422,7 +417,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 break;
             }
 
-            if (token.Type == TokenType.Symbol && (((Token<Symbols>)token).Value == StructMemberSeparator || ((Token<Symbols>)token).Value == Symbols.Semicolon))
+            if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.Semicolon)
             {
                 er.Read(out _);
                 continue;
@@ -703,18 +698,42 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 break;
             }
         }
-
-        FunctionDefinition? fd = readFunctionDefinition(er, nmsp, modifyers, typeName, methodName ?? funcName);
-        if (fd == null)
-            return;
-
-        if (ownerPath != null)
+        
+        if (!er.Peek(out token))
         {
-            Token[] fullOwnerPath = [.. ownerPath, methodName!];
-            pendingMethods.Add((nmsp, fullOwnerPath, fd));
+            errorer.Append("EOF found", token!);
+            return;
         }
-        else
-            nmsp.Append(fd);
+        if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.CircleOpen)
+        {
+            FunctionDefinition? fd = readFunctionDefinition(er, nmsp, modifyers, typeName, methodName ?? funcName);
+            if (fd != null)
+            {
+                if (ownerPath != null)
+                {
+                    Token[] fullOwnerPath = [.. ownerPath, methodName!];
+                    pendingMethods.Add((nmsp, fullOwnerPath, fd));
+                }
+                else
+                {
+                    nmsp.Append(fd);
+                }
+            }
+            return;
+        }
+        if (token.Type == TokenType.Symbol && ((Token<Symbols>)token).Value == Symbols.Semicolon)
+        {
+            er.Read();
+            nmsp.Append(new VariableDefinition(
+                funcName.Value,
+                typeName,
+                nmsp,
+                modifyers,
+                new Location(typeName.TokensLocation(), funcName.Location)
+            ));
+            return;
+        }
+        errorer.Append("Nor function nor global variable definition found", token);
     }
 
     private FunctionDefinition? readFunctionDefinition(EnumerableReader<Token> er, NamespaceDefinition nmsp, Keywords[] modifyers, Token[] typeName, Token<string> funcName)
@@ -1144,6 +1163,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
             fn.Parent = structD;
             structD.Methods.Add(fn);
+            fn.MethodOf = structD.StructType;
 
             INameContainer nameCtx = structD.Parent is NamespaceDefinition parentNs ? parentNs.NameContext : (INameContainer)structD.Parent;
 
@@ -1216,7 +1236,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             else if (d is EnumDefinition)
                 continue;
             else if (d is VariableDefinition varDef)
-                throw new NotImplementedException("Variable definition");
+                setVariableReferences(varDef, nmsp.NameContext);
             else
                 throw new Exception($"Unknown definition {d} in setReferences");
         }
@@ -1319,6 +1339,14 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
             arg.Type = type;
         }
+    }
+
+    private void setVariableReferences(VariableDefinition varDef, INameContainer nmsp)
+    {
+        Typ? type = resolveType(nmsp, varDef.TypeName!);
+        if (type != null) 
+            varDef.Type = type;
+            varDef.Global = true;
     }
 
     private Typ? resolveType(INameContainer nmsp, Token[] name)
