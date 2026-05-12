@@ -1,4 +1,3 @@
-using System.CommandLine;
 using System.Diagnostics;
 
 
@@ -698,7 +697,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                 break;
             }
         }
-        
+
         if (!er.Peek(out token))
         {
             errorer.Append("EOF found", token!);
@@ -1344,9 +1343,9 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
     private void setVariableReferences(VariableDefinition varDef, INameContainer nmsp)
     {
         Typ? type = resolveType(nmsp, varDef.TypeName!);
-        if (type != null) 
+        if (type != null)
             varDef.Type = type;
-            varDef.Global = true;
+        varDef.Global = true;
     }
 
     private Typ? resolveType(INameContainer nmsp, Token[] name)
@@ -2076,7 +2075,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
                     return lhs;
 
                 ctx.Tokens.Read();
-                Typ? rhsExpectedType = op == BinaryOperationTypes.Assign ? getAssignmentTargetType(lhs) : null;
+                Typ? rhsExpectedType = op == BinaryOperationTypes.Assign ? getLHSTargetType(lhs) : null;
                 Executable? rhs = parseExpression(ctx, endSymbols, rightBP, false, rhsExpectedType);
                 if (rhs == null)
                     return null;
@@ -2099,7 +2098,7 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         }
     }
 
-    private Typ? getAssignmentTargetType(Executable left)
+    private Typ? getLHSTargetType(Executable left)
     {
         if (left is Identifyer lhsIdent && lhsIdent.Definition is VariableDefinition varDef)
             return varDef.Type;
@@ -2156,26 +2155,24 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             case UnaryOperationTypes.Cast:
                 throw new UnreachableException("Cast is special case");
             case UnaryOperationTypes.Dereference:
-                if (operand.ReturnType is not Pointer ptr)
                 {
-                    errorer.Append($"Dereferencing is applicable only to pointers, not `{operand.ReturnType}`", operand.Location);
-                    return null;
+                    if (operand.ReturnType is not Pointer ptr)
+                    {
+                        errorer.Append($"Dereferencing is applicable only to pointers, not `{operand.ReturnType}`", operand.Location);
+                        return null;
+                    }
+                    return ptr.PointsTo;
                 }
-                return ptr.PointsTo;
             case UnaryOperationTypes.GetReference:
-                if (operand is Identifyer ident)
-                    return new Pointer(ident.ReturnType);
-                else if (operand is GetElement ge)
                 {
-                    if (ge.Operand.ReturnType is SizedArray sa)
-                        return new Pointer(sa.ElementType);
-                    else if (ge.Operand.ReturnType is Pointer p)
-                        return p;
-                    else
-                        throw new Exception($"Unknown ge operand {ge.Operand}");
+                    var lhsType = getLHSTargetType(operand);
+                    if (lhsType == null)
+                    {
+                        errorer.Append($"Can not take reference of that thing {operand}", operand.Location);
+                        return null;
+                    }
+                    return new Pointer(lhsType);
                 }
-                errorer.Append("Can take reference only from identifier or array element", operand.Location);
-                return null;
             case UnaryOperationTypes.Inverse:
                 if (operand.ReturnType != DefaultType.Bool)
                 {
@@ -2208,24 +2205,10 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
         {
             case BinaryOperationTypes.Assign:
                 {
-                    Typ targetType;
-                    if (left is Identifyer lhsIdent
-                        && lhsIdent.Definition is VariableDefinition varDef)
-                        targetType = varDef.Type;
-                    else if (left is GetMember gm)
-                        targetType = gm.ReturnType;
-                    else if (left is GetElement ge)
+                    Typ? targetType = getLHSTargetType(left);
+                    if (targetType == null)
                     {
-                        if (ge.Operand.ReturnType is SizedArray sa)
-                            targetType = sa.ElementType;
-                        else if (ge.Operand.ReturnType is Pointer p)
-                            targetType = p.PointsTo;
-                        else
-                            throw new Exception($"Indexing {ge.Operand}. In verifyBinaryOperation");
-                    }
-                    else
-                    {
-                        errorer.Append($"Unexpected lhs {left}", left.Location);
+                        errorer.Append($"Can not write to {left}", left.Location);
                         return null;
                     }
 
@@ -2431,8 +2414,8 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
         if (allowed)
             return new UnaryOperation(UnaryOperationTypes.Cast, e, targetType, e.Location);
-        else
-            return null;
+
+        return null;
     }
 
     private Executable? promoteVariadicArgument(Executable e)
@@ -2548,18 +2531,20 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
             }
             else if (tv.Type is StructType st)
             {
-                var staticFunc = st.Methods.FirstOrDefault(m => m.Name == nameToken.Value && (
-                            m.Arguments.Arguments.Count == 0 ||
-                            !(m.Arguments.Arguments[0].Type is Pointer p && p.PointsTo == st)
-                            ));
-                if (staticFunc != null)
-                {
-                    return new Identifyer(
-                            staticFunc,
-                            new FunctionPointer(staticFunc),
-                            location
-                            );
-                }
+                // TODO: Static functions
+
+                // var staticFunc = st.Methods.FirstOrDefault(m => m.Name == nameToken.Value && (
+                //             m.Arguments.Arguments.Count == 0 ||
+                //             !(m.Arguments.Arguments[0].Type is Pointer p && p.PointsTo == st)
+                //             ));
+                // if (staticFunc != null)
+                // {
+                //     return new Identifyer(
+                //             staticFunc,
+                //             new FunctionPointer(staticFunc),
+                //             location
+                //             );
+                // }
 
                 errorer.Append($"Struct `{st.Name}` does not have static function `{nameToken.Value}`", nameToken.Location);
                 return null;
@@ -2600,7 +2585,15 @@ public class Parser(List<FileDefinition> files, ErrorReporter errorer)
 
             var method = st2.GetMethod(nameToken.Value);
             if (method != null)
-                return new MethodValue(lhs, method, location);
+            {
+                var lhsType = getLHSTargetType(lhs);
+                if (lhsType == null)
+                    return reterror($"Can not take reference to an object", lhs);
+
+                // auto ref™
+                var refed = new UnaryOperation(UnaryOperationTypes.GetReference, lhs, new Pointer(lhsType), lhs.Location);
+                return new MethodValue(refed, method, location);
+            }
 
             return reterror($"`{nameToken.Value}` is not a member or a method of a `{st2.Name}` struct", location);
         }
